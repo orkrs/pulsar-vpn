@@ -1,0 +1,28 @@
+@import "tailwindcss"; /* Новый стандарт Tailwind v4 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&family=JetBrains+Mono:wght@800&display=swap');
+
+/* ЖЕЛЕЗОБЕТОННЫЙ ФИКС ЭКРАНА */
+html, body, #app {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background-color: #121212; /* Твой цвет фона */
+    color: #FDFDFD;            /* Твой цвет текста */
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Скроллбар */
+.custom-scroll::-webkit-scrollbar { width: 6px; }
+.custom-scroll::-webkit-scrollbar-track { background: transparent; }
+.custom-scroll::-webkit-scrollbar-thumb {
+    background: rgba(253, 253, 253, 0.1);
+    border-radius: 10px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover { background: #9D68FF; }

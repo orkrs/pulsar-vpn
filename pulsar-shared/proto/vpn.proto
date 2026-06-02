@@ -1,0 +1,63 @@
+syntax = "proto3";
+package vpn;
+
+service VpnService {
+  rpc ToggleConnection (ConnectionRequest) returns (StatusResponse);
+  rpc GetStatus (Empty) returns (StatusResponse);
+  rpc StreamMetrics (Empty) returns (stream Metrics);
+
+  // АРХИТЕКТУРНОЕ ИСПРАВЛЕНИЕ (Пункт 4):
+  // Метод для мягкого завершения демона (Graceful Shutdown).
+  // Вызывается из Tauri при закрытии окна, чтобы не оставлять зомби-процессы.
+  rpc Shutdown (Empty) returns (Empty);
+}
+
+message Empty {}
+
+// ДОБАВЛЕНО: Перечисление типов DNS для индивидуальной настройки профилей
+enum DnsType {
+  DNS_HTTPS = 0;
+  DNS_HTTP = 1;
+  DNS_UDP = 2;
+}
+
+message RoutingConfig {
+  enum Mode {
+    GLOBAL = 0;
+    BYPASS = 1;
+    PROXY = 2;
+  }
+  Mode mode = 1;
+  repeated string domains = 2;
+  repeated string apps = 3;
+
+  // ДОБАВЛЕНО: Настройки GeoIP-маршрутизации (Пункт 7)
+  bool enable_geoip = 4;
+  map<string, string> geoip_rules = 5; // Ключ: код страны ("ru", "us"), Значение: маршрут ("proxy", "direct", "block")
+
+  // ДОБАВЛЕНО: Индивидуальный тип DNS
+  DnsType dns_type = 6;
+
+  // ДОБАВЛЕНО: Разрешить небезопасное соединение (insecure TLS)
+  bool allow_insecure = 7;
+
+  // Если false — только IPv4 (TUN, DNS, резолв сервера, dial). По умолчанию выкл.
+  bool use_ipv6 = 8;
+}
+
+message ConnectionRequest {
+  bool connect = 1;
+  string profile_link = 2;
+  RoutingConfig routing_config = 3;
+}
+
+message StatusResponse {
+  string state = 1;
+  string message = 2;
+}
+
+// ИСПРАВЛЕНИЕ: Разделяем метрики на Down и Up
+message Metrics {
+  uint64 download_speed = 1; // в байтах в секунду
+  uint64 upload_speed = 2;   // в байтах в секунду
+}

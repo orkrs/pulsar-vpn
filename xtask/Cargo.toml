@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Pulsar VPN build orchestrator. Provides `cargo xtask <subcommand>` to build, dev, clean, lint, and inspect the workspace."
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+# intentionally zero external deps — xtask is a thin wrapper over std::process

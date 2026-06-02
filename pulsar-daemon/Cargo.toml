@@ -1,0 +1,43 @@
+[package]
+name = "pulsar-daemon"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Pulsar VPN backend daemon (gRPC server on Windows, in-process engine on Android)"
+
+[lib]
+name = "pulsar_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pulsar-daemon"
+path = "src/main.rs"
+
+[features]
+# Включается, когда библиотека используется в Android-сборке.
+# Отключает gRPC-специфичные зависимости (tokio full + tonic всё равно
+# остаются, потому что VpnEngine async, но экономит место на мобильной сборке).
+default = []
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tonic = "0.10"
+sysinfo = "0.29"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+url = "2.4"
+anyhow = "1.0"
+thiserror = "1.0"
+pulsar-shared = { path = "../pulsar-shared" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+tracing-appender = "0.2"
+time = { version = "0.3", features = ["formatting"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# На Android будем звать android.net.VpnService и TrafficStats через JNI.
+# ndk-context позволяет достать JavaVM из NativeActivity.
+# Когда придёт время реальной имплементации, добавим сюда конкретные крейты.
+android_logger = "0.14"

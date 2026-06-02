@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "pulsar-shared",
+    "pulsar-daemon",
+    "pulsar-ui/src-tauri",
+    "xtask",
+]
+# По умолчанию cargo build/check/clippy работают только с продуктовыми крейтами.
+# `xtask` подключается явно: `cargo build -p xtask` или `cargo xtask <sub>`.
+default-members = [
+    "pulsar-shared",
+    "pulsar-daemon",
+    "pulsar-ui/src-tauri",
+]
+resolver = "2"
+
+# Общие метаданные — см. https://doc.rust-lang.org/cargo/reference/workspaces.html#the-package-table
+[workspace.package]
+version      = "0.1.0"
+authors      = ["yann1n"]
+license      = "MIT"
+repository   = ""
+edition      = "2024"
+rust-version = "1.85"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = "symbols"
+# panic = "abort"  раскомментируйте, если готовы пожертвовать раскруткой стека ради ~5% размера.
+
+[profile.dev]
+opt-level = 1
+# В dev профиле LTO отключён по умолчанию — оставляем так, чтобы инкрементальные сборки
+# оставались быстрыми. В release выше — LTO thin.
