@@ -11,15 +11,15 @@
 //!    в `mpsc::Receiver<MetricsEvent>`.
 //! 4. `shutdown()`: gRPC `Shutdown` + kill процесса демона.
 
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::{BufRead, BufReader};
 
 use tauri::{Emitter, Manager};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tonic::codegen::InterceptedService;
 use tonic::transport::Channel;
 use uuid::Uuid;
@@ -32,13 +32,22 @@ use pulsar_shared::vpn::{ConnectionRequest, Empty, Metrics, RoutingConfig};
 type GrpcClient = VpnServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
 #[derive(Clone)]
-struct AuthInterceptor { token: String }
+struct AuthInterceptor {
+    token: String,
+}
 
 impl tonic::service::Interceptor for AuthInterceptor {
-    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
-        request.metadata_mut().insert("x-pulsar-token", self.token.parse().unwrap());
+    fn call(
+        &mut self,
+        mut request: tonic::Request<()>,
+    ) -> Result<tonic::Request<()>, tonic::Status> {
+        request
+            .metadata_mut()
+            .insert("x-pulsar-token", self.token.parse().unwrap());
         let request_id = Uuid::new_v4().to_string();
-        request.metadata_mut().insert("x-request-id", request_id.parse().unwrap());
+        request
+            .metadata_mut()
+            .insert("x-request-id", request_id.parse().unwrap());
         Ok(request)
     }
 }
@@ -60,11 +69,11 @@ pub struct WindowsBackend {
 impl WindowsBackend {
     /// Публичная точка входа, вызываемая из `setup()`. Спавнит демон,
     /// подключается к gRPC, возвращает готовый бэкенд.
-    pub fn attach_app(
-        app: &tauri::App,
-        logs_streaming: Arc<AtomicBool>,
-    ) -> Result<Self, String> {
-        let time_nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    pub fn attach_app(app: &tauri::App, logs_streaming: Arc<AtomicBool>) -> Result<Self, String> {
+        let time_nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
         let session_token = format!("pulsar-{}-{}", std::process::id(), time_nanos);
 
         // --- Зачистка "ghost"-процессов ---
@@ -78,7 +87,10 @@ impl WindowsBackend {
             .join("binaries")
             .join("pulsar-daemon.exe");
         if !daemon_path.exists() {
-            return Err(format!("pulsar-daemon.exe not found at {}", daemon_path.display()));
+            return Err(format!(
+                "pulsar-daemon.exe not found at {}",
+                daemon_path.display()
+            ));
         }
 
         let mut cmd = Command::new(&daemon_path);
@@ -98,7 +110,12 @@ impl WindowsBackend {
         let app_handle = app.handle().clone();
 
         // --- Лог-флашер (батчинг вывода демона в webview) ---
-        spawn_log_flusher(child.stdout.take(), child.stderr.take(), app_handle.clone(), logs_streaming.clone());
+        spawn_log_flusher(
+            child.stdout.take(),
+            child.stderr.take(),
+            app_handle.clone(),
+            logs_streaming.clone(),
+        );
 
         // --- Сохраняем child для последующего kill ---
         let daemon_process = Arc::new(Mutex::new(None));
@@ -115,12 +132,17 @@ impl WindowsBackend {
             let mut attempts = 0u32;
             loop {
                 attempts += 1;
-                match Channel::from_static("http://127.0.0.1:50051").connect().await {
+                match Channel::from_static("http://127.0.0.1:50051")
+                    .connect()
+                    .await
+                {
                     Ok(channel) => {
                         tracing::info!(attempt = attempts, "gRPC connected to pulsar-daemon");
                         let c = VpnServiceClient::with_interceptor(
                             channel,
-                            AuthInterceptor { token: token_for_grpc.clone() },
+                            AuthInterceptor {
+                                token: token_for_grpc.clone(),
+                            },
                         );
                         *client_store.lock().await = Some(c);
                         return;
@@ -145,7 +167,9 @@ impl WindowsBackend {
 
     pub async fn connect(&self, req: ConnectRequest) -> Result<VpnState, String> {
         let mut g = self.client.lock().await;
-        let client = g.as_mut().ok_or_else(|| "Daemon is not connected to UI yet. Please wait.".to_string())?;
+        let client = g
+            .as_mut()
+            .ok_or_else(|| "Daemon is not connected to UI yet. Please wait.".to_string())?;
         let proto_req = ConnectionRequest {
             connect: true,
             profile_link: req.profile_link,
@@ -167,7 +191,9 @@ impl WindowsBackend {
 
     pub async fn disconnect(&self) -> Result<VpnState, String> {
         let mut g = self.client.lock().await;
-        let client = g.as_mut().ok_or_else(|| "Daemon is not connected".to_string())?;
+        let client = g
+            .as_mut()
+            .ok_or_else(|| "Daemon is not connected".to_string())?;
         let req = ConnectionRequest {
             connect: false,
             profile_link: String::new(),
@@ -186,7 +212,9 @@ impl WindowsBackend {
     #[allow(dead_code)] // используется через Backend::state() (enum-dispatch)
     pub async fn state(&self) -> VpnState {
         let mut g = self.client.lock().await;
-        let Some(client) = g.as_mut() else { return VpnState::Disconnected };
+        let Some(client) = g.as_mut() else {
+            return VpnState::Disconnected;
+        };
         match client.get_status(Empty {}).await {
             Ok(r) => {
                 let r = r.into_inner();
@@ -200,7 +228,9 @@ impl WindowsBackend {
         // Отдаём подписку однократно. mpsc::Receiver — не Clone, поэтому
         // просто отдаём его вызывающему; повторный вызов вернёт None.
         let mut g = self.metrics_rx.lock().await;
-        if g.take().is_some() { return None; }
+        if g.take().is_some() {
+            return None;
+        }
         let (tx, rx) = mpsc::channel::<MetricsEvent>(8);
         let client_arc = self.client.clone();
         tauri::async_runtime::spawn(async move {
@@ -226,8 +256,20 @@ impl WindowsBackend {
                 };
                 loop {
                     match stream.message().await {
-                        Ok(Some(Metrics { download_speed, upload_speed })) => {
-                            if tx.send(MetricsEvent { download_speed, upload_speed }).await.is_err() { return; }
+                        Ok(Some(Metrics {
+                            download_speed,
+                            upload_speed,
+                        })) => {
+                            if tx
+                                .send(MetricsEvent {
+                                    download_speed,
+                                    upload_speed,
+                                })
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
                         }
                         Ok(None) => break,
                         Err(e) => {
@@ -272,7 +314,7 @@ fn kill_ghosts() {
         .creation_flags(0x08000000)
         .status();
     let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/IM", "sing-box.exe", "/T"])
+        .args(["/F", "/IM", "xray.exe", "/T"])
         .creation_flags(0x08000000)
         .status();
 }
@@ -351,8 +393,12 @@ fn spawn_log_flusher(
                     Ok(0) => break,
                     Ok(_) => {
                         let trimmed = line.trim_end_matches(['\r', '\n']);
-                        if trimmed.is_empty() { continue; }
-                        if tx.send((0, trimmed.to_string())).is_err() { break; }
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if tx.send((0, trimmed.to_string())).is_err() {
+                            break;
+                        }
                     }
                     Err(_) => break,
                 }
@@ -370,8 +416,12 @@ fn spawn_log_flusher(
                     Ok(0) => break,
                     Ok(_) => {
                         let trimmed = line.trim_end_matches(['\r', '\n']);
-                        if trimmed.is_empty() { continue; }
-                        if tx.send((1, format!("[CRITICAL] {}", trimmed))).is_err() { break; }
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        if tx.send((1, format!("[CRITICAL] {}", trimmed))).is_err() {
+                            break;
+                        }
                     }
                     Err(_) => break,
                 }
@@ -393,7 +443,9 @@ fn parse_proto_state(state: &str, message: &str) -> VpnState {
 
 fn emit_error_notification(app: &tauri::AppHandle, msg: &str) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder()
+    let _ = app
+        .notification()
+        .builder()
         .title("PulsarVPN Error")
         .body(format!("Connection Failed: {}", msg))
         .show();

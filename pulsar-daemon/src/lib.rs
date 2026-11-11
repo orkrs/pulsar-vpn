@@ -10,11 +10,11 @@
 //! 2. **Android**: Tauri-приложение линкуется с этой библиотекой
 //!    напрямую (через cargo feature `android-engine`) и использует
 //!    [`VpnEngine`] in-process, без gRPC. На Android движок работает
-//!    через Android `VpnService` + нативный sing-box, см.
+//!    через Android `VpnService` + нативный Xray, см.
 //!    [`vpn_engine::android`].
 //!
 //! Публичный API библиотеки намеренно узкий:
-//! - [`config_gen`] — генерация JSON-конфига sing-box
+//! - [`config_gen`] — генерация JSON-конфига Xray
 //! - [`vpn_engine`] — основной движок (состояние, процесс, метрики)
 //! - [`logger`] — инициализация логирования (используется бинарём)
 //!

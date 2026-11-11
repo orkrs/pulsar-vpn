@@ -45,7 +45,9 @@ tauri-plugin-notification = "2.0"
 # раздует бинарь.
 
 [target.'cfg(target_os = "android")'.dependencies]
-# Android-специфичные зависимости (jni, ndk-context и т. п.) добавятся
-# позже, когда появится реальная реализация VpnService.
-
+android_logger = "0.14"
+log = "0.4"
+jni = "0.21"
+ndk-context = "0.1"
+libc = "0.2"
 

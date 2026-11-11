@@ -16,7 +16,7 @@ resolver = "2"
 
 # Общие метаданные — см. https://doc.rust-lang.org/cargo/reference/workspaces.html#the-package-table
 [workspace.package]
-version      = "0.1.0"
+version      = "0.2.0"
 authors      = ["yann1n"]
 license      = "MIT"
 repository   = ""

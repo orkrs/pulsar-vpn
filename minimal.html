@@ -1,0 +1,788 @@
+<!doctype html>
+<!--
+  Pulsar VPN — минималистичный UI (single-file, zero-dependency).
+  ============================================================================
+  ЧТО ЭТО: функциональный прототип нового дизайна. Сохраняет 100% функций
+  App.vue: dashboard, nodes (импорт/поиск/сорт/пинг/аккордеон), settings
+  (split-tunneling, geoip x20, autostart, tray), edit-modal ноды
+  (dns/allowInsecure/ipv6), логи, wizard, quick-add, toast.
+
+  КАК СМОТРЕТЬ: просто открыть файл в браузере — включится demo-режим
+  с тестовыми нодами (бэкенда нет). Внутри Tauri (заменить dist/index.html
+  или открыть как окно) — тот же файл работает с реальным бэкендом через
+  @tauri-apps/api (invoke/listen) и plugin-store. Никаких правок JS не надо.
+
+  ЧТО УБРАНО (и почему это главный выигрыш по весу/батарее):
+  - three.js + @tresjs/core + @tresjs/cientos (~1.2MB JS, постоянный WebGL
+    rAF-цикл, 3800 частиц, MeshPhysicalMaterial+transmission, antialias,
+    preserveDrawingBuffer) -> статичный CSS-индикатор статуса (0 GPU).
+  - Tailwind v4 + PostCSS (~100KB+ CSS в бандле) -> ~9KB ручного CSS.
+  - @vueuse/motion, бесконечная orb-pulse анимация -> только
+    transform/opacity переходы 150-200мс, respect prefers-reduced-motion.
+  - backdrop-filter: blur(24px) на каждой панели (каждый blur — отдельный
+    GPU-слой в WebView2) -> плоские поверхности, 1px borders, без blur.
+  - Google Fonts (3 семейства, внешний запрос, трекинг) -> системный стек.
+  - lucide-vue-next (30+ иконок в бандле) -> 4 инлайн-SVG примитива.
+  - emoji-флаги (отдельный color-шрифт, пестрят) -> моноширинные коды стран.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulsar VPN — Minimal</title>
+<style>
+:root{
+  --bg:#101010; --surface:#161616; --surface2:#1c1c1c; --surface3:#222;
+  --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14);
+  --text:#ededed; --muted:#a3a3a3; --faint:#6f6f6f;
+  --accent:#e8e8e8; --accent-dim:rgba(255,255,255,.12);
+  --good:#9fd8b4; --good-bg:rgba(159,216,180,.1);
+  --warn:#e6c98a; --warn-bg:rgba(230,201,138,.1);
+  --bad:#e8a0a0;  --bad-bg:rgba(232,160,160,.1);
+  --mono:ui-monospace,'Cascadia Mono','SF Mono',Menlo,Consolas,monospace;
+  --sans:-apple-system,'Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif;
+  --serif:Georgia,'Times New Roman',serif;
+  --r:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);
+  font-size:14px;line-height:1.6;display:flex;justify-content:center;
+  -webkit-font-smoothing:antialiased}
+::selection{background:rgba(255,255,255,.22)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{width:100%;max-width:880px;padding:28px 20px 64px;display:flex;flex-direction:column;gap:16px}
+/* header */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand span{color:var(--faint);font-weight:400}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:5px 12px;background:var(--surface)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.dot.on{background:var(--good)}
+.status.on{color:var(--good);border-color:rgba(159,216,180,.35)}
+.top-actions{display:flex;gap:8px;align-items:center}
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:1px solid var(--line-strong);border-radius:6px;padding:9px 16px;
+  font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  background:transparent;color:var(--text);transition:transform .15s,background .15s}
+.btn:hover{background:var(--surface2)}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#111}
+.btn.primary:hover{background:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.small{padding:6px 10px;font-size:11px}
+.btn.danger{color:var(--bad);border-color:rgba(232,160,160,.3)}
+.btn.danger:hover{background:var(--bad-bg)}
+.icon-btn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:6px;color:var(--muted);background:transparent}
+.icon-btn:hover{color:var(--text);background:var(--surface2)}
+.icon-btn svg{width:15px;height:15px}
+/* tabs */
+.tabs{display:flex;gap:2px;border:1px solid var(--line);border-radius:8px;
+  padding:3px;background:var(--surface);max-width:460px}
+.tabs button{flex:1;padding:8px 4px;font-size:12px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--faint);border-radius:6px;transition:background .15s,color .15s}
+.tabs button:hover{color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface3);color:var(--text)}
+/* cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.card h2{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.card h2 .n{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}.app{padding:16px 12px 96px}}
+/* connect block */
+.connect{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.connect-info{flex:1;min-width:200px}
+.connect-state{font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+.connect-sub{color:var(--muted);font-size:13px;margin-top:4px}
+.connect-sub code{font-family:var(--mono);font-size:12px;color:var(--text)}
+.metrics{display:flex;gap:24px;margin-top:12px}
+.metric .v{font-family:var(--mono);font-size:20px;font-weight:700}
+.metric .l{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.big-btn{min-width:200px;padding:16px 28px;font-size:13px}
+/* forms */
+.field{display:flex;gap:8px}
+.field input,.field select,select.inline,input.inline{flex:1;min-width:0;background:var(--bg);
+  border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-size:13px}
+.field input{font-family:var(--mono);font-size:12px}
+.field input::placeholder{color:var(--faint)}
+select.inline{flex:0 0 auto;background:var(--bg)}
+label.lbl{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--faint);margin:16px 0 8px}
+label.lbl:first-child{margin-top:0}
+.hint{font-size:12px;color:var(--faint);margin-top:8px}
+.hint code{font-family:var(--mono);font-size:11px;color:var(--muted);
+  background:var(--surface2);padding:1px 5px;border-radius:4px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+  border:1px solid var(--line);border-radius:6px;padding:5px 6px 5px 10px;background:var(--bg)}
+.chip button{color:var(--faint);font-size:14px;line-height:1;padding:2px 6px;border-radius:4px}
+.chip button:hover{color:var(--bad);background:var(--bad-bg)}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{flex:1;padding:9px 4px;font-size:12px;font-weight:700;color:var(--faint);transition:background .15s,color .15s}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#111}
+/* nodes */
+.toolbar{display:flex;gap:8px;margin-bottom:12px}
+.toolbar .grow{flex:1;position:relative}
+.toolbar .grow svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  width:14px;height:14px;color:var(--faint)}
+.toolbar .grow input{width:100%;background:var(--bg);border:1px solid var(--line);
+  border-radius:6px;padding:9px 10px 9px 32px;font-size:13px}
+.group{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;background:var(--surface);overflow:hidden}
+.group-head{width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;text-align:left}
+.group-head:hover{background:var(--surface2)}
+.group-head .caret{color:var(--faint);font-family:var(--mono);font-size:12px;width:14px}
+.group-head .name{flex:1;min-width:0;font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.count{font-family:var(--mono);font-size:11px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.group-meta{font-size:11px;color:var(--faint);font-family:var(--mono)}
+.nodes{border-top:1px solid var(--line)}
+.node{width:100%;display:flex;align-items:center;gap:12px;padding:10px 14px;
+  border-top:1px solid var(--line);text-align:left}
+.node:first-child{border-top:none}
+.node:hover{background:var(--surface2)}
+.node.active{background:rgba(255,255,255,.04)}
+.node .cc{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--muted);
+  border:1px solid var(--line-strong);border-radius:4px;padding:3px 6px;min-width:34px;text-align:center}
+.node.active .cc{background:var(--accent);border-color:var(--accent);color:#111}
+.node .nm{flex:1;min-width:0}
+.node .nm .t{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node .nm .s{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.node .nm .s .tag{border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:6px}
+.ping{font-family:var(--mono);font-size:12px;font-weight:700;width:64px;text-align:right}
+.ping.good{color:var(--good)}.ping.mid{color:var(--warn)}.ping.bad{color:var(--bad)}.ping.idle{color:var(--faint)}
+.node .row-actions{display:flex;gap:4px}
+.empty{border:1px dashed var(--line-strong);border-radius:8px;padding:28px;text-align:center;color:var(--muted)}
+.empty .t{font-weight:700;color:var(--text);margin-bottom:4px}
+/* settings rows */
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:none}
+.row .t{font-weight:600;font-size:13px}
+.row .d{font-size:12px;color:var(--muted);margin-top:2px}
+.switch{position:relative;width:44px;height:24px;border-radius:999px;background:var(--surface3);
+  border:1px solid var(--line-strong);transition:background .15s;flex-shrink:0}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+  background:var(--muted);transition:transform .15s,background .15s}
+.switch[aria-checked="true"]{background:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(20px);background:#111}
+.geo{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+@media(max-width:640px){.geo{grid-template-columns:1fr}}
+.geo-item{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px}
+.geo-item .c{font-family:var(--mono);font-size:11px;color:var(--faint);
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-right:8px}
+/* logs */
+.logs{font-family:var(--mono);font-size:11px;line-height:1.7;background:#0b0b0b;
+  border:1px solid var(--line);border-radius:8px;padding:12px 14px;max-height:220px;
+  overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.logs .err{color:var(--bad)}
+.logs-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;
+  padding:4px 0;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+/* dialog / wizard / toast */
+dialog{background:var(--surface);color:var(--text);border:1px solid var(--line-strong);
+  border-radius:12px;padding:24px;width:min(420px,calc(100vw - 40px))}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog h3{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:16px}
+.dialog-actions{display:flex;gap:8px;margin-top:20px}
+.dialog-actions .btn{flex:1}
+.wizard{position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;
+  align-items:center;justify-content:center;padding:20px}
+.wizard[hidden]{display:none}
+.wizard-box{max-width:520px;width:100%;text-align:center;border:1px solid var(--line);
+  border-radius:12px;padding:48px 36px;background:var(--surface)}
+.wizard-box h1{font-family:var(--serif);font-size:30px;letter-spacing:-.02em;line-height:1.15;margin-bottom:12px}
+.wizard-box p{color:var(--muted);margin-bottom:24px}
+.dots{display:flex;gap:6px;justify-content:center;margin-top:24px}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--surface3)}
+.dots i.cur{width:20px;border-radius:999px;background:var(--accent)}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:60;
+  background:var(--surface3);border:1px solid var(--line-strong);border-radius:999px;
+  padding:8px 18px;font-size:12px;font-weight:600;white-space:nowrap;max-width:90vw;
+  opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.demo-note{border:1px dashed var(--line-strong);border-radius:8px;padding:10px 14px;
+  font-size:12px;color:var(--warn);font-family:var(--mono)}
+kbd{border:1px solid var(--line-strong);border-radius:4px;background:var(--surface2);
+  font-family:var(--mono);font-size:11px;padding:1px 6px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">Pulsar <span>VPN</span></div>
+    <div class="top-actions">
+      <span class="status" id="statusBadge"><i class="dot" id="statusDot"></i><span id="statusText">Off</span></span>
+      <button class="btn small" id="quickAddBtn" title="Вставить из буфера обмена">Paste</button>
+    </div>
+  </header>
+
+  <div id="demoNote" class="demo-note" hidden>demo-режим: бэкенд Tauri не найден, показаны тестовые данные. Откройте файл внутри Tauri для реальной работы.</div>
+
+  <nav class="tabs" role="tablist" aria-label="Разделы">
+    <button role="tab" data-tab="dashboard" aria-selected="true">Подключение</button>
+    <button role="tab" data-tab="nodes" aria-selected="false">Узлы</button>
+    <button role="tab" data-tab="settings" aria-selected="false">Настройки</button>
+  </nav>
+
+  <main id="view"></main>
+
+  <section class="card">
+    <button class="logs-toggle" id="logsToggle" aria-expanded="false">
+      <span>Системный журнал</span><span id="logsCaret">+</span>
+    </button>
+    <div id="logsBox" hidden>
+      <div class="logs" id="logs" aria-live="polite"></div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button class="btn small" id="clearLogs">Очистить</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="editDialog" aria-labelledby="editTitle">
+  <h3 id="editTitle">Настройки узла</h3>
+  <label class="lbl" for="fDns">DNS</label>
+  <select class="inline" id="fDns" style="width:100%">
+    <option value="https">HTTPS (DoH) — шифрованный</option>
+    <option value="http">HTTP — не шифрованный</option>
+    <option value="udp">UDP — классический (порт 53)</option>
+  </select>
+  <p class="hint">Меняйте, если сервер не подключается из-за DNS (типично для Hysteria2).</p>
+  <div class="row"><div><div class="t">Allow insecure</div><div class="d">Пропустить проверку TLS (самоподписанные серты).</div></div>
+    <button class="switch" id="fInsecure" role="switch" aria-checked="false" aria-label="Allow insecure"></button></div>
+  <div class="row"><div><div class="t">IPv6</div><div class="d">Выкл: только IPv4 (TUN, DNS, dial). Вкл: разрешить IPv6.</div></div>
+    <button class="switch" id="fIpv6" role="switch" aria-checked="false" aria-label="Use IPv6"></button></div>
+  <div class="dialog-actions">
+    <button class="btn" id="editCancel">Отмена</button>
+    <button class="btn primary" id="editSave">Сохранить</button>
+  </div>
+</dialog>
+
+<div class="wizard" id="wizard" hidden>
+  <div class="wizard-box">
+    <div id="wzBody"></div>
+    <div class="dots" id="wzDots"><i></i><i></i><i></i></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+'use strict';
+/* ---------- детект среды: Tauri или demo ---------- */
+const isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
+
+/* Лёгкие обёртки: в demo-режимексе возвращают тестовые данные */
+const MOCK = !isTauri;
+const demoProfiles = [
+  { id: 1, name: 'DE-Frankfurt-01', protocol: 'VLESS', ping: 42, active: true, rawLink: 'vless://demo1', flag: 'DE', country: 'Germany', dnsType: 'https', allowInsecure: false, useIpv6: false },
+  { id: 2, name: 'NL-Amsterdam-02', protocol: 'Trojan', ping: 87, active: false, rawLink: 'trojan://demo2', flag: 'NL', country: 'Netherlands', dnsType: 'https', allowInsecure: false, useIpv6: false },
+  { id: 3, name: 'US-NewYork-07', protocol: 'Hysteria2', ping: -1, active: false, rawLink: 'hy2://demo3', flag: 'US', country: 'USA', dnsType: 'udp', allowInsecure: true, useIpv6: false },
+];
+async function invoke(cmd, args) {
+  if (!MOCK) {
+    const core = await import(/* @vite-ignore */ '@tauri-apps/api/core').catch(() => null);
+    if (core) return core.invoke(cmd, args);
+    if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke(cmd, args);
+  }
+  // demo-заглушки
+  if (cmd === 'get_platform_info') return { os: 'demo', apps_label: 'Applications', apps_placeholder: 'process name', apps_append_suffix: false, apps_supported: true };
+  if (cmd === 'get_vpn_state') return state.connected ? 'Connected' : 'Disconnected';
+  if (cmd === 'check_ping') return 30 + Math.floor(Math.random() * 200);
+  if (cmd === 'toggle_vpn') { await wait(600); return args.payload.connect ? 'Connected' : 'Disconnected'; }
+  if (cmd === 'fetch_subscription') throw 'demo: нет сети подписок в demo-режиме';
+  return null;
+}
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------- состояние (1:1 с App.vue) ---------- */
+const COUNTRIES = [['RU','Russia'],['US','United States'],['DE','Germany'],['GB','United Kingdom'],['FR','France'],['NL','Netherlands'],['CA','Canada'],['AU','Australia'],['JP','Japan'],['CN','China'],['BR','Brazil'],['IN','India'],['IT','Italy'],['ES','Spain'],['SE','Sweden'],['NO','Norway'],['FI','Finland'],['DK','Denmark'],['PL','Poland'],['UA','Ukraine']];
+const state = {
+  tab: 'dashboard', connected: false, importing: false, pinging: false,
+  metrics: { download: 0, upload: 0 },
+  subscriptions: [], standalone: MOCK ? [...demoProfiles] : [],
+  expanded: new Set(['__standalone__']),
+  search: '', sortBy: 'name', sortOrder: 'asc',
+  settings: { autoStart: false, minimizeToTray: true, setupWizardCompleted: MOCK ? true : false, enableGeoip: false, geoipRules: {} },
+  routing: { mode: 'bypass', domains: [], apps: [] },
+  platform: { apps_label: 'Applications', apps_placeholder: 'process name', apps_append_suffix: false, apps_supported: false },
+  logs: ['[SYSTEM] Pulsar Engine Initialized'],
+  importUrl: '',
+};
+let memStore = null; // localStorage fallback для demo
+const store = {
+  async load() {
+    if (!MOCK) {
+      try {
+        const s = await import(/* @vite-ignore */ '@tauri-apps/plugin-store').catch(() => null);
+        if (s) { memStore = await s.load('store.json', { autoSave: false, defaults: {} }); }
+      } catch (e) { log('[ERROR] store: ' + e); }
+    }
+    if (!memStore) {
+      try { memStore = JSON.parse(localStorage.getItem('pulsar-minimal') || 'null'); } catch { memStore = null; }
+    }
+    if (memStore && typeof memStore.get === 'function') {
+      const g = async (k) => { try { return await memStore.get(k); } catch { return null; } };
+      state.subscriptions = (await g('subscriptions')) || state.subscriptions;
+      state.standalone = (await g('standaloneProfiles')) || state.standalone;
+      const old = await g('profiles');
+      if (old && state.standalone.length === 0) state.standalone = old;
+      state.routing = (await g('routing')) || state.routing;
+      state.settings = { ...state.settings, ...((await g('settings')) || {}) };
+    } else if (memStore) {
+      state.subscriptions = memStore.subscriptions || state.subscriptions;
+      state.standalone = memStore.standalone?.length ? memStore.standalone : state.standalone;
+      state.routing = memStore.routing || state.routing;
+      state.settings = { ...state.settings, ...(memStore.settings || {}) };
+    }
+    state.standalone.forEach((p) => norm(p));
+    state.subscriptions.forEach((s) => s.nodes.forEach(norm));
+  },
+  async save() {
+    const data = { subscriptions: state.subscriptions, standaloneProfiles: state.standalone, routing: state.routing, settings: state.settings };
+    if (memStore && typeof memStore.set === 'function') {
+      try { await memStore.set('subscriptions', data.subscriptions); await memStore.set('standaloneProfiles', data.standaloneProfiles); await memStore.set('routing', data.routing); await memStore.set('settings', data.settings); await memStore.save(); return; } catch (e) { /* fallback ниже */ }
+    }
+    try { localStorage.setItem('pulsar-minimal', JSON.stringify({ ...data, standalone: data.standaloneProfiles })); } catch { /* приватный режим */ }
+  },
+};
+function norm(p) { p.dnsType ||= 'https'; p.allowInsecure ??= false; p.useIpv6 ??= false; return p; }
+
+/* ---------- helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const allProfiles = () => [...state.subscriptions.flatMap((s) => s.nodes), ...state.standalone];
+const activeProfile = () => allProfiles().find((p) => p.active) || { name: 'Узел не выбран', protocol: '—', flag: '··', country: '' };
+const mbps = (b) => ((b * 8) / (1024 * 1024)).toFixed(1);
+let toastTimer = null;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200); }
+
+/* логи: коалесинг через rAF, кап 100 строк (как в App.vue) */
+let pendingLogs = [], logScheduled = false;
+function renderLogs() {
+  const box = $('#logs');
+  box.innerHTML = state.logs.map((l) => `<div class="${l.includes('ERROR') ? 'err' : ''}">${esc(l)}</div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+function log(msg) {
+  pendingLogs.push(msg);
+  if (logScheduled) return;
+  logScheduled = true;
+  requestAnimationFrame(() => {
+    logScheduled = false;
+    state.logs.push(...pendingLogs); pendingLogs = [];
+    if (state.logs.length > 100) state.logs.splice(0, state.logs.length - 100);
+    renderLogs();
+  });
+}
+
+/* ---------- Tauri events (метрики/лог-стрим) ---------- */
+async function initStreams() {
+  if (MOCK) {
+    // demo: лёгкая симуляция скорости только когда подключено, 1 update/сек
+    setInterval(() => {
+      if (!state.connected) return;
+      state.metrics = { download: 0.6e6 + Math.random() * 2.4e6, upload: 0.2e6 + Math.random() * 0.6e6 };
+      if (state.tab === 'dashboard') render();
+      else { const d = $('#mDown'), u = $('#mUp'); if (d) d.textContent = mbps(state.metrics.download); if (u) u.textContent = mbps(state.metrics.upload); }
+    }, 1000);
+    return;
+  }
+  try {
+    const ev = await import(/* @vite-ignore */ '@tauri-apps/api/event').catch(() => null);
+    const listen = ev?.listen || window.__TAURI__?.event?.listen;
+    if (listen) {
+      await listen('vpn_metrics', (e) => { state.metrics = e.payload; if (state.tab === 'dashboard') render(); });
+      await listen('vpn_log', (e) => log('[CORE] ' + e.payload));
+    }
+    for (let i = 0; i < 60; i++) {
+      try { await invoke('start_metrics_stream'); break; }
+      catch { if (i < 59) await wait(2000); }
+    }
+    await invoke('set_logs_streaming', { enable: false }).catch(() => {});
+  } catch (e) { console.error(e); }
+}
+
+/* ---------- бизнес-логика (портирована из App.vue) ---------- */
+async function toggleVpn() {
+  const profiles = allProfiles();
+  if (!profiles.length) { toast('Сначала добавьте узел'); setTab('nodes'); return; }
+  const active = profiles.find((p) => p.active);
+  if (!active?.rawLink) return;
+  const target = !state.connected;
+  log(`[SYSTEM] ${target ? 'Подключение' : 'Отключение'}...`);
+  try {
+    const res = await invoke('toggle_vpn', { payload: { connect: target, link: active.rawLink,
+      routing_config: { mode: state.routing.mode, domains: state.routing.domains, apps: state.routing.apps,
+        enable_geoip: state.settings.enableGeoip, geoip_rules: state.settings.geoipRules,
+        dns_type: active.dnsType || 'https', allow_insecure: active.allowInsecure ?? false, use_ipv6: active.useIpv6 ?? false } } });
+    state.connected = res === 'Connected';
+    log('[SYSTEM] ' + res);
+  } catch (e) { log('[ERROR] ' + e); state.connected = false; }
+  render();
+}
+async function refreshPings() {
+  if (state.pinging) return;
+  state.pinging = true; log('[SYSTEM] Проверка задержки...'); render();
+  allProfiles().forEach((p) => (p.ping = 0));
+  await Promise.allSettled(allProfiles().map(async (p) => {
+    try { p.ping = await invoke('check_ping', { link: p.rawLink }); } catch { p.ping = -1; }
+  }));
+  await store.save();
+  state.pinging = false; render();
+}
+function parseLoc(name) {
+  const m = String(name).match(/[A-Z]{2}/);
+  let country = 'Unknown';
+  if (/RU/.test(name)) country = 'Russia'; else if (/DE/.test(name)) country = 'Germany';
+  else if (/NL/.test(name)) country = 'Netherlands'; else if (/US/.test(name)) country = 'USA';
+  else if (/PL/.test(name)) country = 'Poland';
+  return { flag: m ? m[0] : '··', country };
+}
+function createProfile(url, subId) {
+  let protocol = 'Custom', name = 'Node';
+  if (url.startsWith('vless://')) protocol = 'VLESS';
+  else if (url.startsWith('wireguard://')) protocol = 'WireGuard';
+  else if (url.startsWith('warp://')) protocol = 'WARP';
+  else if (url.startsWith('ss://')) protocol = 'Shadowsocks';
+  else if (url.startsWith('trojan://')) protocol = 'Trojan';
+  else if (url.startsWith('hysteria2://') || url.startsWith('hy2://')) protocol = 'Hysteria2';
+  const hi = url.indexOf('#');
+  if (hi !== -1) { try { name = decodeURIComponent(url.slice(hi + 1)); } catch {} }
+  const { flag, country } = parseLoc(name);
+  return norm({ id: Date.now() + Math.random(), name, protocol, ping: 0, active: false, rawLink: url, flag, country, subscriptionId: subId });
+}
+async function handleImport(raw) {
+  const input = (raw ?? state.importUrl).trim();
+  if (!input) return;
+  state.importUrl = ''; state.importing = true; render();
+  try {
+    if (input.startsWith('http')) {
+      log('[SYSTEM] Получение подписки...');
+      const res = await invoke('fetch_subscription', { url: input });
+      const subId = Date.now().toString();
+      const nodes = res.nodes.map((l) => createProfile(l, subId)).filter(Boolean);
+      let expire;
+      if (res.userinfo) { const m = res.userinfo.match(/expire=(\d+)/); if (m) expire = +m[1] * 1000; }
+      if (!allProfiles().length && nodes.length) nodes[0].active = true;
+      state.subscriptions.push({ id: subId, url: input, name: new URL(input).hostname, lastUpdated: Date.now(), expire, nodes });
+      state.expanded.add(subId);
+      log(`[SYSTEM] Импортировано узлов: ${nodes.length}`);
+    } else {
+      const p = createProfile(input);
+      if (p) { if (!allProfiles().length) p.active = true; state.standalone.push(p); log('[SYSTEM] Импортирован узел: ' + p.name); }
+    }
+    await store.save(); refreshPings();
+  } catch (e) { log('[ERROR] Импорт: ' + e); }
+  finally { state.importing = false; render(); }
+}
+async function quickAdd() {
+  let text = '';
+  try {
+    if (state.platform.os === 'android') text = await invoke('read_clipboard');
+    else text = await navigator.clipboard.readText();
+  } catch (e) { log('[WARN] clipboard: ' + e); }
+  text = (text || '').trim();
+  if (!text) { toast('Буфер обмена пуст'); return; }
+  if (/^(http|vless:\/\/|vmess:\/\/|trojan:\/\/|ss:\/\/|hy2:\/\/|hysteria2:\/\/|wireguard:\/\/|warp:\/\/)/.test(text)) {
+    await handleImport(text); toast('Импортировано из буфера');
+  } else { state.importUrl = text; setTab('nodes'); toast('Вставлено в поле — проверьте и добавьте'); render(); }
+}
+
+/* ---------- рендер ---------- */
+function pingClass(p) { if (p > 0 && p < 150) return 'good'; if (p > 0 && p < 300) return 'mid'; if (p > 0) return 'bad'; return 'idle'; }
+function pingHtml(p) { if (p > 0) return `${p}<span style="font-size:9px;opacity:.6">ms</span>`; if (p === 0) return '···'; return '×'; }
+
+function filtered(nodes) {
+  let r = nodes;
+  const q = state.search.trim().toLowerCase();
+  if (q) r = r.filter((p) => (p.name + p.protocol + p.country).toLowerCase().includes(q));
+  const mod = state.sortOrder === 'asc' ? 1 : -1;
+  const w = (p) => (p > 0 ? p : p === 0 ? 999998 : 999999);
+  return [...r].sort((a, b) => state.sortBy === 'name' ? a.name.localeCompare(b.name) * mod : (w(a.ping) - w(b.ping)) * mod);
+}
+
+function vDashboard() {
+  const a = activeProfile();
+  return `
+  <section class="card"><h2>Состояние</h2>
+    <div class="connect">
+      <div class="connect-info">
+        <div class="connect-state">${state.connected ? 'Защищено' : 'Не защищено'}</div>
+        <div class="connect-sub">Активный узел: <code>${esc(a.name)}</code> · ${esc(a.protocol)}</div>
+        <div class="metrics">
+          <div class="metric"><div class="v" id="mDown">${state.connected ? mbps(state.metrics.download) : '0.0'}</div><div class="l">Мбит/с ↓</div></div>
+          <div class="metric"><div class="v" id="mUp">${state.connected ? mbps(state.metrics.upload) : '0.0'}</div><div class="l">Мбит/с ↑</div></div>
+        </div>
+      </div>
+      <button class="btn primary big-btn" data-act="toggle">${state.connected ? 'Отключить' : 'Подключить'}</button>
+    </div>
+  </section>`;
+}
+
+function nodeRow(p) {
+  return `
+  <button class="node ${p.active ? 'active' : ''}" data-act="select" data-id="${p.id}">
+    <span class="cc">${esc(p.flag)}</span>
+    <span class="nm"><span class="t">${esc(p.name)}</span><br>
+      <span class="s">${esc(p.protocol)}${p.dnsType && p.dnsType !== 'https' ? `<span class="tag">${esc(p.dnsType)}</span>` : ''}</span></span>
+    <span class="ping ${pingClass(p.ping)}">${pingHtml(p.ping)}</span>
+    <span class="row-actions" data-stop="1">
+      <button class="icon-btn" data-act="edit" data-id="${p.id}" title="Настройки узла" aria-label="Настройки узла">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2L3.4 12.6"/></svg>
+      </button>
+    </span>
+  </button>`;
+}
+
+function vNodes() {
+  const groups = [
+    ...state.subscriptions.map((s) => ({ id: s.id, name: s.name, sub: s, nodes: s.nodes })),
+    ...(state.standalone.length ? [{ id: '__standalone__', name: 'Вручную добавленные', sub: null, nodes: state.standalone }] : []),
+  ];
+  return `
+  <section class="card"><h2>Импорт <span class="n">— подписка или одиночная ссылка</span></h2>
+    <div class="field">
+      <input id="importInput" placeholder="https://… или vless://, trojan://, ss://…" value="${esc(state.importUrl)}" aria-label="Ссылка для импорта">
+      <button class="btn primary" data-act="import" ${state.importing ? 'disabled' : ''}>${state.importing ? '···' : 'Add'}</button>
+    </div>
+  </section>
+  <section class="card"><h2>Узлы <span class="n">— ${allProfiles().length}</span></h2>
+    <div class="toolbar">
+      <div class="grow">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+        <input id="searchInput" placeholder="Поиск…" value="${esc(state.search)}" aria-label="Поиск узлов">
+      </div>
+      <button class="btn small" data-act="sort-name" title="Сортировка по имени">Имя ${state.sortBy === 'name' ? (state.sortOrder === 'asc' ? '↓' : '↑') : ''}</button>
+      <button class="btn small" data-act="sort-ping" title="Сортировка по пингу">Пинг ${state.sortBy === 'ping' ? (state.sortOrder === 'asc' ? '↓' : '↑') : ''}</button>
+      <button class="icon-btn" data-act="ping" title="Проверить задержку" aria-label="Проверить задержку" ${state.pinging ? 'disabled' : ''}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3"/></svg>
+      </button>
+    </div>
+    ${groups.length === 0 ? `<div class="empty"><div class="t">Узлов пока нет</div><div>Вставьте ссылку подписки или одиночный узел выше.</div></div>` : ''}
+    ${groups.map((g) => `
+      <div class="group">
+        <button class="group-head" data-act="expand" data-id="${esc(g.id)}">
+          <span class="caret">${state.expanded.has(g.id) ? '−' : '+'}</span>
+          <span class="name">${esc(g.name)}</span>
+          <span class="count">${g.nodes.length}</span>
+          ${g.sub ? `<span class="group-meta">${new Date(g.sub.lastUpdated).toLocaleDateString('ru-RU')}${g.sub.expire ? ' · до ' + new Date(g.sub.expire).toLocaleDateString('ru-RU') : ''}</span>` : '<span class="group-meta">вручную</span>'}
+          <span data-stop="1" style="display:flex;gap:4px">
+            ${g.sub ? `<button class="icon-btn" data-act="refresh-sub" data-id="${esc(g.id)}" title="Обновить подписку" aria-label="Обновить подписку"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3"/></svg></button>
+            <button class="icon-btn" data-act="del-sub" data-id="${esc(g.id)}" title="Удалить подписку" aria-label="Удалить подписку"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 4h11M6.5 2.5h3M4 4l.7 9.5h6.6L12 4"/></svg></button>` : ''}
+          </span>
+        </button>
+        ${state.expanded.has(g.id) ? `<div class="nodes">${filtered(g.nodes).map(nodeRow).join('') || '<div style="padding:12px 14px;color:var(--faint);font-size:12px">Ничего не найдено</div>'}</div>` : ''}
+      </div>`).join('')}
+  </section>`;
+}
+
+function vSettings() {
+  const r = state.routing, s = state.settings;
+  const sw = (on, act) => `<button class="switch" role="switch" aria-checked="${on}" data-act="${act}" aria-label="${act}"></button>`;
+  return `
+  <section class="card"><h2>Безопасность</h2>
+    <div class="row"><div><div class="t">DNS-перехват</div><div class="d">Всегда включён: трафик на порт 53 идёт через sing-box (<code>protocol: dns → hijack-dns</code>). DoH/DoT к своим серверам — по правилам ниже.</div></div></div>
+    <div class="row"><div><div class="t">Kill Switch <span class="count">план</span></div><div class="d">Сброс трафика при обрыве VPN (netsh/iptables). Отдельная задача.</div></div></div>
+  </section>
+  <section class="card"><h2>Сплит-туннелирование</h2>
+    <div class="seg" role="group" aria-label="Режим маршрутизации">
+      ${[['global', 'Всё через VPN'], ['bypass', 'Кроме списка'], ['proxy', 'Только список']].map(([m, l]) => `<button data-act="mode" data-id="${m}" aria-pressed="${r.mode === m}">${l}</button>`).join('')}
+    </div>
+    ${r.mode !== 'global' ? `
+    <label class="lbl" for="domInput">Домены <span style="text-transform:none;letter-spacing:0">(суффикс: google.com покрывает mail.google.com)</span></label>
+    <div class="field"><input id="domInput" placeholder="google.com"><button class="btn small" data-act="add-domain">+</button></div>
+    <div class="chips">${r.domains.map((d, i) => `<span class="chip">${esc(d)}<button data-act="del-domain" data-id="${i}" aria-label="Удалить ${esc(d)}">×</button></span>`).join('')}</div>
+    ${state.platform.apps_supported ? `
+    <label class="lbl" for="appInput">${esc(state.platform.apps_label)}</label>
+    <div class="field"><input id="appInput" placeholder="${esc(state.platform.apps_placeholder)}"><button class="btn small" data-act="add-app">+</button></div>
+    <div class="chips">${r.apps.map((a, i) => `<span class="chip">${esc(a)}<button data-act="del-app" data-id="${i}" aria-label="Удалить ${esc(a)}">×</button></span>`).join('')}</div>` : ''}
+    ` : '<p class="hint">Режим «Всё через VPN»: исключения не применяются.</p>'}
+  </section>
+  <section class="card"><h2>Поведение</h2>
+    <div class="row"><div><div class="t">Автозапуск</div><div class="d">Запуск Pulsar VPN вместе с системой.</div></div>${sw(s.autoStart, 'autostart')}</div>
+    <div class="row"><div><div class="t">Сворачивать в трей</div><div class="d">Держать VPN активным в фоне при закрытии окна.</div></div>${sw(s.minimizeToTray, 'tray')}</div>
+  </section>
+  <section class="card"><h2>GeoIP-маршрутизация</h2>
+    <div class="row"><div><div class="t">Включить GeoIP</div><div class="d">Маршрут по стране IP-адреса назначения.</div></div>${sw(s.enableGeoip, 'geoip')}</div>
+    ${s.enableGeoip ? `<div class="geo">${COUNTRIES.map(([code, name]) => `
+      <div class="geo-item"><span><span class="c">${code}</span>${name}</span>
+        <select class="inline" data-geo="${code}" aria-label="${name}">
+          ${['proxy', 'direct', 'block'].map((v) => `<option value="${v}" ${(s.geoipRules[code] || 'proxy') === v ? 'selected' : ''}>${v === 'proxy' ? 'VPN' : v === 'direct' ? 'Мимо' : 'Блок'}</option>`).join('')}
+        </select></div>`).join('')}</div>
+      <p class="hint">Применяются после локальных исключений. «Блок» отбрасывает трафик.</p>` : ''}
+  </section>`;
+}
+
+function render() {
+  $('#statusBadge').classList.toggle('on', state.connected);
+  $('#statusDot').classList.toggle('on', state.connected);
+  $('#statusText').textContent = state.connected ? 'On' : 'Off';
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
+  $('#view').innerHTML = state.tab === 'dashboard' ? vDashboard() : state.tab === 'nodes' ? vNodes() : vSettings();
+  const si = $('#searchInput');
+  if (si) { si.addEventListener('input', () => { state.search = si.value; const pos = si.selectionStart; render(); const nsi = $('#searchInput'); nsi.focus(); nsi.setSelectionRange(pos, pos); }); }
+  const ii = $('#importInput');
+  if (ii) ii.addEventListener('keydown', (e) => { if (e.key === 'Enter') { state.importUrl = ii.value; handleImport(); } else state.importUrl = ii.value; });
+  const di = $('#domInput');
+  if (di) di.addEventListener('keydown', (e) => { if (e.key === 'Enter') addDomain(di.value); });
+  const ai = $('#appInput');
+  if (ai) ai.addEventListener('keydown', (e) => { if (e.key === 'Enter') addApp(ai.value); });
+  document.querySelectorAll('[data-geo]').forEach((sel) => sel.addEventListener('change', async (e) => {
+    state.settings.geoipRules[sel.dataset.geo] = e.target.value; await store.save();
+  }));
+}
+function setTab(t) { state.tab = t; render(); }
+
+/* ---------- действия ---------- */
+function addDomain(v) { v = (v ?? '').trim(); if (!v) return; state.routing.domains.push(v); store.save(); render(); }
+function addApp(v) {
+  v = (v ?? '').trim(); if (!v) return;
+  if (state.platform.apps_append_suffix && !v.toLowerCase().endsWith('.exe')) v += '.exe';
+  state.routing.apps.push(v); store.save(); render();
+}
+let editingId = null;
+function openEdit(id) {
+  const p = allProfiles().find((x) => x.id === id); if (!p) return;
+  editingId = id;
+  $('#fDns').value = p.dnsType || 'https';
+  $('#fInsecure').setAttribute('aria-checked', String(!!p.allowInsecure));
+  $('#fIpv6').setAttribute('aria-checked', String(!!p.useIpv6));
+  $('#editDialog').showModal();
+}
+async function saveEdit() {
+  const upd = (arr) => { const p = arr.find((x) => x.id === editingId);
+    if (p) { p.dnsType = $('#fDns').value; p.allowInsecure = $('#fInsecure').getAttribute('aria-checked') === 'true'; p.useIpv6 = $('#fIpv6').getAttribute('aria-checked') === 'true'; } };
+  upd(state.standalone); state.subscriptions.forEach((s) => upd(s.nodes));
+  await store.save(); $('#editDialog').close(); render();
+}
+
+document.addEventListener('click', async (e) => {
+  const stop = e.target.closest('[data-stop]');
+  const el = e.target.closest('[data-act]');
+  const tabBtn = e.target.closest('.tabs button');
+  if (tabBtn) { setTab(tabBtn.dataset.tab); return; }
+  if (e.target.closest('.switch') && !el) {
+    const sw = e.target.closest('.switch');
+    sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true'));
+    return;
+  }
+  if (!el) return;
+  if (stop) e.stopPropagation();
+  const act = el.dataset.act, id = el.dataset.id;
+  if (act === 'toggle') toggleVpn();
+  else if (act === 'import') { state.importUrl = $('#importInput')?.value ?? state.importUrl; handleImport(); }
+  else if (act === 'sort-name') { state.sortBy === 'name' ? state.sortOrder = (state.sortOrder === 'asc' ? 'desc' : 'asc') : (state.sortBy = 'name', state.sortOrder = 'asc'); render(); }
+  else if (act === 'sort-ping') { state.sortBy === 'ping' ? state.sortOrder = (state.sortOrder === 'asc' ? 'desc' : 'asc') : (state.sortBy = 'ping', state.sortOrder = 'asc'); render(); }
+  else if (act === 'ping') refreshPings();
+  else if (act === 'expand') { const sid = id; state.expanded.has(sid) ? state.expanded.delete(sid) : state.expanded.add(sid); state.expanded = new Set(state.expanded); render(); }
+  else if (act === 'select') {
+    const nid = +id;
+    state.subscriptions.forEach((s) => s.nodes.forEach((p) => (p.active = p.id === nid)));
+    state.standalone.forEach((p) => (p.active = p.id === nid));
+    await store.save(); render();
+  }
+  else if (act === 'edit') openEdit(+id);
+  else if (act === 'refresh-sub') {
+    const sub = state.subscriptions.find((s) => s.id === id); if (!sub) return;
+    log('[SYSTEM] Обновление подписки ' + sub.name + '...');
+    try {
+      const res = await invoke('fetch_subscription', { url: sub.url });
+      const activeLink = activeProfile().rawLink;
+      sub.nodes = res.nodes.map((l) => createProfile(l, sub.id)).filter(Boolean);
+      const found = sub.nodes.find((n) => n.rawLink === activeLink); if (found) found.active = true;
+      sub.lastUpdated = Date.now();
+      if (res.userinfo) { const m = res.userinfo.match(/expire=(\d+)/); if (m) sub.expire = +m[1] * 1000; }
+      await store.save(); refreshPings(); log('[SYSTEM] Подписка обновлена: ' + sub.nodes.length);
+    } catch (err) { log('[ERROR] Обновление: ' + err); }
+    render();
+  }
+  else if (act === 'del-sub') { state.subscriptions = state.subscriptions.filter((s) => s.id !== id); state.expanded.delete(id); await store.save(); render(); }
+  else if (act === 'mode') { state.routing.mode = id; await store.save(); render(); }
+  else if (act === 'add-domain') addDomain($('#domInput')?.value);
+  else if (act === 'del-domain') { state.routing.domains.splice(+id, 1); await store.save(); render(); }
+  else if (act === 'add-app') addApp($('#appInput')?.value);
+  else if (act === 'del-app') { state.routing.apps.splice(+id, 1); await store.save(); render(); }
+  else if (act === 'autostart') {
+    try {
+      if (!MOCK) {
+        const a = await import(/* @vite-ignore */ '@tauri-apps/plugin-autostart').catch(() => null);
+        if (a) { state.settings.autoStart ? await a.disable() : await a.enable(); }
+      }
+      state.settings.autoStart = !state.settings.autoStart; await store.save();
+    } catch (err) { toast('Автозапуск: ' + err); }
+    render();
+  }
+  else if (act === 'tray') {
+    state.settings.minimizeToTray = !state.settings.minimizeToTray;
+    try { await invoke('set_minimize_to_tray', { enable: state.settings.minimizeToTray }); } catch {}
+    await store.save(); render();
+  }
+  else if (act === 'geoip') { state.settings.enableGeoip = !state.settings.enableGeoip; await store.save(); render(); }
+});
+
+/* dialog + logs + quickadd */
+$('#editCancel').addEventListener('click', () => $('#editDialog').close());
+$('#editSave').addEventListener('click', saveEdit);
+[$('#fInsecure'), $('#fIpv6')].forEach((sw) => sw.addEventListener('click', () =>
+  sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true'))));
+$('#logsToggle').addEventListener('click', async () => {
+  const box = $('#logsBox'), open = box.hidden;
+  box.hidden = !open;
+  $('#logsCaret').textContent = open ? '−' : '+';
+  $('#logsToggle').setAttribute('aria-expanded', String(open));
+  if (!MOCK) try { await invoke('set_logs_streaming', { enable: open }); } catch {}
+});
+$('#clearLogs').addEventListener('click', () => { state.logs = []; renderLogs(); });
+$('#quickAddBtn').addEventListener('click', quickAdd);
+
+/* ---------- wizard ---------- */
+let wzStep = 1;
+function renderWizard() {
+  const show = !state.settings.setupWizardCompleted;
+  $('#wizard').hidden = !show;
+  if (!show) return;
+  [...$('#wzDots').children].forEach((d, i) => d.classList.toggle('cur', i === wzStep - 1));
+  const b = $('#wzBody');
+  if (wzStep === 1) b.innerHTML = `<h1>Добро пожаловать в Pulsar VPN</h1><p>Приватный туннельный клиент. Настройка займёт меньше минуты.</p><button class="btn primary" id="wzNext">Начать</button>`;
+  else if (wzStep === 2) b.innerHTML = `<h1>Первая подписка</h1><p>Вставьте ссылку VLESS, Trojan или подписки.</p><div class="field"><input id="wzInput" placeholder="https://… или vless://…"><button class="btn primary" id="wzImport">Add</button></div><p style="margin-top:12px"><button id="wzSkip" style="color:var(--faint);font-size:12px">Пропустить</button></p>`;
+  else b.innerHTML = `<h1>Готово</h1><p>Pulsar VPN готов к подключению.</p><button class="btn primary" id="wzDone">К подключению</button>`;
+  $('#wzNext')?.addEventListener('click', () => { wzStep = 2; renderWizard(); });
+  $('#wzSkip')?.addEventListener('click', () => { wzStep = 3; renderWizard(); });
+  $('#wzDone')?.addEventListener('click', async () => { state.settings.setupWizardCompleted = true; await store.save(); renderWizard(); setTab('dashboard'); });
+  $('#wzImport')?.addEventListener('click', async () => { await handleImport($('#wzInput').value); if (allProfiles().length) { wzStep = 3; renderWizard(); } });
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && $('#wzInput') === document.activeElement) $('#wzImport').click(); });
+
+/* ---------- init ---------- */
+(async function init() {
+  $('#demoNote').hidden = !MOCK;
+  renderLogs();
+  try {
+    const info = await invoke('get_platform_info');
+    if (info) state.platform = info;
+    const st = await invoke('get_vpn_state');
+    state.connected = st === 'Connected' || st === 'Connecting';
+  } catch (e) { log('[WARN] platform: ' + e); }
+  await store.load();
+  if (!MOCK) {
+    try {
+      const a = await import(/* @vite-ignore */ '@tauri-apps/plugin-autostart').catch(() => null);
+      if (a) state.settings.autoStart = await a.isEnabled();
+      await invoke('set_minimize_to_tray', { enable: state.settings.minimizeToTray }).catch(() => {});
+    } catch {}
+  }
+  if (!state.settings.setupWizardCompleted && !MOCK) { /* wizard покажется */ }
+  render(); renderWizard(); initStreams();
+  if (allProfiles().length && !MOCK) refreshPings();
+})();
+</script>
+</body>
+</html>

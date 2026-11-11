@@ -1,296 +1,311 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import * as THREE from 'three'
+import { onMounted, onBeforeUnmount, watch, ref } from 'vue'
 
-const props = defineProps<{ speed: number; isConnected: boolean; active?: boolean }>()
-const containerRef = ref<HTMLElement | null>(null)
+const props = defineProps<{
+  speed: number
+  isConnected: boolean
+  busy?: boolean
+  active?: boolean
+}>()
 
-let renderer: THREE.WebGLRenderer
-let scene: THREE.Scene
-let camera: THREE.PerspectiveCamera
-let animationFrameId: number
-let clock: THREE.Clock
-let resizeObserver: ResizeObserver
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+const note = ref('CANVAS2D · 30 FPS · IDLE')
 
-let group: THREE.Group
-let core: THREE.Mesh
-let innerCore1: THREE.Points
-let innerCore2: THREE.Points
-let wireframe: THREE.Mesh
-let particles: THREE.Points
-let ambient: THREE.Points
-let pointLightMain: THREE.PointLight
+const TAU = Math.PI * 2
+const STEP = 1000 / 30
+const REDUCED = typeof matchMedia !== 'undefined'
+  && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-let coreMaterial: THREE.MeshPhysicalMaterial
-let innerMaterial: THREE.PointsMaterial
-let wireMaterial: THREE.MeshBasicMaterial
-let particleMaterial: THREE.PointsMaterial
-let ambientMaterial: THREE.PointsMaterial
-
-let currentVisualSpeed = 0
-let stateLerp = 0
-let isRunning = false
-
-// Переиспользуемые объекты (аллокации в onMounted, не в animation loop)
-const tmpColor = new THREE.Color()
-const cOnCore = new THREE.Color(0x2e1065)
-const cOnEmissive = new THREE.Color(0x6d28d9)
-const cOnInner = new THREE.Color(0xf3e8ff)
-const cOnWire = new THREE.Color(0xc084fc)
-const cOnParts = new THREE.Color(0xe9d5ff)
-const cOnLight = new THREE.Color(0xa855f7)
-const cOffCore = new THREE.Color(0x111111)
-const cOffEmissive = new THREE.Color(0x000000)
-const cOffInner = new THREE.Color(0x222222)
-const cOffWire = new THREE.Color(0x333333)
-const cOffParts = new THREE.Color(0x444444)
-const cOffLight = new THREE.Color(0x4c1d95)
-
-function startLoop() {
-  if (isRunning) return
-  isRunning = true
-  clock.start()
-  const animate = () => {
-    if (!isRunning) return
-    animationFrameId = requestAnimationFrame(animate)
-
-    const delta = Math.min(clock.getDelta(), 0.05)
-    const elapsed = clock.getElapsedTime()
-
-    const targetState = props.isConnected ? 1 : 0
-    stateLerp = THREE.MathUtils.lerp(stateLerp, targetState, delta * 3.0)
-
-    const targetSpeed = props.isConnected ? (props.speed / 1024 / 1024) : 0
-    currentVisualSpeed = THREE.MathUtils.lerp(currentVisualSpeed, targetSpeed, delta * 2.0)
-
-    const activityMult = 0.2 + (stateLerp * 0.8) + (currentVisualSpeed * 0.05)
-
-    group.rotation.y += delta * activityMult * 0.4
-    group.rotation.z = Math.sin(elapsed * 0.3) * 0.1
-
-    wireframe.rotation.x -= delta * activityMult * 0.3
-    wireframe.rotation.y -= delta * activityMult * 0.2
-    wireframe.scale.setScalar(1.05 + Math.cos(elapsed * 2) * (0.02 + stateLerp * 0.03))
-
-    particles.rotation.y += delta * activityMult * 0.6
-    particles.rotation.z = Math.cos(elapsed * 0.4) * 0.15
-    particles.scale.setScalar(1.0 + stateLerp * 0.2 + Math.sin(elapsed * 5) * (0.02 * currentVisualSpeed))
-
-    ambient.rotation.y -= delta * 0.02
-    ambient.rotation.x = Math.sin(elapsed * 0.1) * 0.05
-
-    const breathSpeed = 2 + stateLerp * 3 + currentVisualSpeed
-    const breathAmp = 0.01 + stateLerp * 0.04 + (currentVisualSpeed * 0.01)
-    core.scale.setScalar(1 + Math.sin(elapsed * breathSpeed) * breathAmp)
-    core.rotation.y -= delta * activityMult * 0.5
-    core.rotation.x += delta * activityMult * 0.3
-
-    const plasmaSpeed = delta * (1 + stateLerp * 3 + currentVisualSpeed * 2)
-    innerCore1.rotation.y += plasmaSpeed
-    innerCore1.rotation.x += plasmaSpeed * 0.5
-
-    innerCore2.rotation.y -= plasmaSpeed * 1.2
-    innerCore2.rotation.z += plasmaSpeed * 0.8
-
-    // Lerp c переиспользованием tmpColor — никаких new THREE.Color() в горячем цикле
-    tmpColor.copy(cOffCore).lerp(cOnCore, stateLerp); coreMaterial.color.copy(tmpColor)
-    tmpColor.copy(cOffEmissive).lerp(cOnEmissive, stateLerp); coreMaterial.emissive.copy(tmpColor)
-    tmpColor.copy(cOffInner).lerp(cOnInner, stateLerp); innerMaterial.color.copy(tmpColor)
-    tmpColor.copy(cOffWire).lerp(cOnWire, stateLerp); wireMaterial.color.copy(tmpColor)
-    tmpColor.copy(cOffParts).lerp(cOnParts, stateLerp); particleMaterial.color.copy(tmpColor)
-
-    coreMaterial.emissiveIntensity = (0.2 + stateLerp * 2.0) + (Math.sin(elapsed * 12) * 0.3 * stateLerp)
-    innerMaterial.opacity = (stateLerp * 0.9) + (Math.sin(elapsed * 8) * 0.2 * stateLerp)
-    wireMaterial.opacity = 0.1 + (stateLerp * 0.3)
-    particleMaterial.opacity = 0.1 + (stateLerp * 0.6)
-
-    tmpColor.copy(cOffLight).lerp(cOnLight, stateLerp); pointLightMain.color.copy(tmpColor)
-    pointLightMain.intensity = (5 + stateLerp * 35) + (Math.sin(elapsed * 10) * 10 * stateLerp)
-
-    renderer.render(scene, camera)
+const pts: [number, number, number][] = []
+;(() => {
+  const N = 240
+  const ga = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i / (N - 1)) * 2
+    const r = Math.sqrt(1 - y * y)
+    const th = ga * i
+    pts.push([Math.cos(th) * r, y, Math.sin(th) * r])
   }
-  animationFrameId = requestAnimationFrame(animate)
+})()
+
+type Mode = 'off' | 'on' | 'connecting'
+let ctx: CanvasRenderingContext2D | null = null
+let running = false
+let raf = 0
+let last = 0
+let acc = 0
+let mode: Mode = 'off'
+let alpha = 0.3
+let targetAlpha = 0.3
+let rot = 0
+let ringAcc = 0
+let rings: { k: number }[] = []
+let beamI = 0
+let targetBeam = 0
+let speedF = 0
+let targetSpeedF = 0
+let resizeObserver: ResizeObserver | null = null
+
+function resolveMode(): Mode {
+  if (props.busy) return 'connecting'
+  if (props.isConnected) return 'on'
+  return 'off'
 }
 
-function stopLoop() {
-  if (!isRunning) return
-  isRunning = false
-  if (animationFrameId) cancelAnimationFrame(animationFrameId)
-  animationFrameId = 0
+function applyMode(m: Mode) {
+  mode = m
+  targetAlpha = m === 'on' ? 1 : m === 'connecting' ? 0.62 : 0.3
+  targetBeam = m === 'on' ? 0.6 : m === 'connecting' ? 0.3 : 0
+  if (m === 'connecting') note.value = 'CANVAS2D · 30 FPS · HANDSHAKE…'
+  else if (m === 'on') note.value = 'CANVAS2D · 30 FPS · RENDERING'
+  else if (!running) note.value = 'CANVAS2D · 30 FPS · IDLE'
+  start()
+}
+
+function fit() {
+  const cv = canvasRef.value
+  if (!cv || !ctx) return
+  const rect = cv.getBoundingClientRect()
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+  cv.width = Math.max(1, Math.round(rect.width * dpr))
+  cv.height = Math.max(1, Math.round(rect.height * dpr))
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  if (!running) draw(performance.now())
+}
+
+function drawBeams(cx: number, cy: number, R: number, now: number) {
+  if (!ctx || beamI < 0.02) return
+  const col = mode === 'on' ? '61,220,151' : '240,179,92'
+  const L = R * 1.6
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(now * 0.00045 + Math.sin(now * 0.001) * 0.06)
+  let g = ctx.createLinearGradient(-L, 0, L, 0)
+  g.addColorStop(0, `rgba(${col},0)`)
+  g.addColorStop(0.5, `rgba(${col},${0.55 * beamI * alpha})`)
+  g.addColorStop(1, `rgba(${col},0)`)
+  ctx.fillStyle = g
+  ctx.fillRect(-L, -1.6, L * 2, 3.2)
+  g = ctx.createLinearGradient(-L, 0, L, 0)
+  g.addColorStop(0, `rgba(${col},0)`)
+  g.addColorStop(0.5, `rgba(${col},${0.14 * beamI * alpha})`)
+  g.addColorStop(1, `rgba(${col},0)`)
+  ctx.fillStyle = g
+  ctx.fillRect(-L, -5, L * 2, 10)
+  ctx.rotate(Math.PI / 2.6)
+  g = ctx.createLinearGradient(-L, 0, L, 0)
+  g.addColorStop(0, `rgba(${col},0)`)
+  g.addColorStop(0.5, `rgba(${col},${0.22 * beamI * alpha})`)
+  g.addColorStop(1, `rgba(${col},0)`)
+  ctx.fillStyle = g
+  ctx.fillRect(-L, -1.2, L * 2, 2.4)
+  ctx.restore()
+}
+
+function draw(now: number) {
+  const cv = canvasRef.value
+  if (!cv || !ctx) return
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+  const w = cv.width / dpr
+  const h = cv.height / dpr
+  if (w < 2) return
+  ctx.clearRect(0, 0, w, h)
+  const cx = w / 2
+  const cy = h / 2
+  const R = Math.min(w, h) * 0.37
+
+  for (const r of rings) {
+    const rad = R * (1 + r.k * 1.05)
+    ctx.beginPath()
+    ctx.arc(cx, cy, rad, 0, TAU)
+    ctx.strokeStyle = '#3ddc97'
+    ctx.globalAlpha = (1 - r.k) * 0.22 * alpha
+    ctx.lineWidth = 1
+    ctx.stroke()
+  }
+
+  const pulse = 1 + Math.sin(now * 0.004) * (0.012 + speedF * 0.03)
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.9 * pulse)
+  g.addColorStop(0, `rgba(139,124,255,${0.30 * alpha})`)
+  g.addColorStop(0.5, `rgba(139,124,255,${0.09 * alpha})`)
+  g.addColorStop(1, 'rgba(139,124,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, w, h)
+
+  drawBeams(cx, cy, R, now)
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, R * 0.09 * pulse, 0, TAU)
+  ctx.fillStyle = `rgba(236,238,246,${0.85 * alpha})`
+  ctx.fill()
+
+  const cs = Math.cos(rot)
+  const sn = Math.sin(rot)
+  const ct = Math.cos(0.42)
+  const st = Math.sin(0.42)
+  for (const p of pts) {
+    const x1 = p[0] * cs + p[2] * sn
+    const z1 = -p[0] * sn + p[2] * cs
+    const y2 = p[1] * ct - z1 * st
+    const z2 = p[1] * st + z1 * ct
+    const depth = (z2 + 1) / 2
+    const s = (0.7 + depth * 1.6) * (1 + speedF * 0.25)
+    ctx.globalAlpha = (0.10 + 0.55 * depth) * alpha
+    ctx.fillStyle = depth > 0.74 ? '#d6dbff' : '#8b7cff'
+    ctx.fillRect(cx + x1 * R * pulse - s / 2, cy + y2 * R * pulse - s / 2, s, s)
+  }
+  ctx.globalAlpha = 1
+}
+
+function frame(now: number) {
+  if (!running) return
+  raf = requestAnimationFrame(frame)
+  if (document.hidden) return
+  const dt = Math.min(now - last, 120)
+  last = now
+  acc += dt
+  if (acc < STEP) return
+  acc %= STEP
+
+  alpha += (targetAlpha - alpha) * 0.09
+  beamI += (targetBeam - beamI) * 0.08
+  speedF += (targetSpeedF - speedF) * 0.05
+  rot += mode === 'on' ? 0.0042 + speedF * 0.007 : 0.0019
+
+  if (mode === 'on') {
+    ringAcc += STEP
+    const period = Math.max(750, 1500 - speedF * 700)
+    if (ringAcc > period) {
+      ringAcc = 0
+      rings.push({ k: 0 })
+    }
+  }
+  for (const r of rings) r.k += STEP / 2000
+  rings = rings.filter(r => r.k < 1)
+
+  if (
+    mode === 'off'
+    && Math.abs(alpha - targetAlpha) < 0.004
+    && Math.abs(beamI - targetBeam) < 0.01
+    && rings.length === 0
+  ) {
+    running = false
+    cancelAnimationFrame(raf)
+    alpha = targetAlpha
+    beamI = targetBeam
+    draw(now)
+    note.value = 'CANVAS2D · 30 FPS · IDLE'
+    return
+  }
+  draw(now)
+}
+
+function start() {
+  if (props.active === false) return
+  if (REDUCED) {
+    alpha = targetAlpha
+    beamI = targetBeam
+    speedF = targetSpeedF
+    draw(performance.now())
+    return
+  }
+  if (running) return
+  running = true
+  last = performance.now()
+  acc = STEP
+  raf = requestAnimationFrame(frame)
+}
+
+function stop() {
+  if (!running) return
+  running = false
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+
+function onVisibility() {
+  if (document.hidden) {
+    stop()
+  } else if (mode !== 'off' || alpha > 0.31 || beamI > 0.02) {
+    if (props.active !== false) start()
+  }
 }
 
 onMounted(() => {
-  if (!containerRef.value) return
+  const cv = canvasRef.value
+  if (!cv) return
+  ctx = cv.getContext('2d', { alpha: true })
+  if (!ctx) return
 
-  scene = new THREE.Scene()
-  clock = new THREE.Clock(false)
+  resizeObserver = new ResizeObserver(() => fit())
+  resizeObserver.observe(cv)
+  document.addEventListener('visibilitychange', onVisibility)
+  fit()
+  applyMode(resolveMode())
+})
 
-  const width = containerRef.value.clientWidth
-  const height = containerRef.value.clientHeight
-
-  camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
-  camera.position.z = 7
-
-  renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true, powerPreference: 'low-power' })
-  renderer.setSize(width, height)
-  // devicePixelRatio cap = 1.5 даёт 2-4x ускорение на 2K/4K мониторах,
-  // визуально разница для additive-blended частиц незаметна.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
-  containerRef.value.appendChild(renderer.domElement)
-
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.3)
-  scene.add(ambientLight)
-
-  pointLightMain = new THREE.PointLight(0x9D68FF, 0, 20)
-  pointLightMain.position.set(2, 2, 5)
-  scene.add(pointLightMain)
-
-  const pointLightSub = new THREE.PointLight(0x4c1d95, 2)
-  pointLightSub.position.set(-2, -2, -5)
-  scene.add(pointLightSub)
-
-  group = new THREE.Group()
-  scene.add(group)
-
-  const coreGeo = new THREE.IcosahedronGeometry(0.8, 2)
-  coreMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0x111111,
-    emissive: 0x000000,
-    roughness: 0.1,
-    metalness: 0.9,
-    transparent: true,
-    opacity: 0.7,
-    transmission: 0.5,
-    wireframe: false,
-  })
-  core = new THREE.Mesh(coreGeo, coreMaterial)
-  group.add(core)
-
-  const createInnerCore = (count: number, radius: number, _size: number) => {
-    const geo = new THREE.BufferGeometry()
-    const pos = new Float32Array(count * 3)
-    for (let i = 0; i < count; i++) {
-      const r = Math.pow(Math.random(), 1/3) * radius
-      const theta = Math.random() * 2 * Math.PI
-      const phi = Math.acos(2 * Math.random() - 1)
-      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta)
-      pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta)
-      pos[i * 3 + 2] = r * Math.cos(phi)
+watch(
+  () => [props.isConnected, props.busy, props.active] as const,
+  () => {
+    if (props.active === false) {
+      stop()
+      return
     }
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    return geo
-  }
+    applyMode(resolveMode())
+  },
+)
 
-  innerMaterial = new THREE.PointsMaterial({
-    size: 0.025,
-    color: 0x333333,
-    transparent: true,
-    opacity: 0.0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-  })
-
-  innerCore1 = new THREE.Points(createInnerCore(600, 0.6, 0.03), innerMaterial)
-  innerCore2 = new THREE.Points(createInnerCore(400, 0.4, 0.04), innerMaterial)
-  core.add(innerCore1)
-  core.add(innerCore2)
-
-  const wireGeo = new THREE.IcosahedronGeometry(1.05, 2)
-  wireMaterial = new THREE.MeshBasicMaterial({
-    color: 0x333333,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.1
-  })
-  wireframe = new THREE.Mesh(wireGeo, wireMaterial)
-  group.add(wireframe)
-
-  const pCount = 2000
-  const pGeo = new THREE.BufferGeometry()
-  const pPos = new Float32Array(pCount * 3)
-  for (let i = 0; i < pCount; i++) {
-    const r = 1.6 + Math.random() * 1.5
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.acos(2 * Math.random() - 1)
-    pPos[i * 3] = r * Math.sin(phi) * Math.cos(theta)
-    pPos[i * 3 + 1] = (r * Math.sin(phi) * Math.sin(theta)) * 0.2
-    pPos[i * 3 + 2] = r * Math.cos(phi)
-  }
-  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
-  particleMaterial = new THREE.PointsMaterial({
-    size: 0.03,
-    color: 0x444444,
-    transparent: true,
-    opacity: 0.2,
-    sizeAttenuation: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false
-  })
-  particles = new THREE.Points(pGeo, particleMaterial)
-  group.add(particles)
-
-  const dCount = 800
-  const dGeo = new THREE.BufferGeometry()
-  const dPos = new Float32Array(dCount * 3)
-  for (let i = 0; i < dCount * 3; i++) dPos[i] = (Math.random() - 0.5) * 15
-  dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3))
-  ambientMaterial = new THREE.PointsMaterial({
-    size: 0.02,
-    color: 0x333333,
-    transparent: true,
-    opacity: 0.2,
-    depthWrite: false
-  })
-  ambient = new THREE.Points(dGeo, ambientMaterial)
-  scene.add(ambient)
-
-  // Запускаем анимацию только когда вкладка активна.
-  if (props.active !== false) startLoop()
-
-  resizeObserver = new ResizeObserver(() => {
-    if (!containerRef.value) return
-    const newWidth = containerRef.value.clientWidth
-    const newHeight = containerRef.value.clientHeight
-    if (newWidth === 0 || newHeight === 0) return
-    camera.aspect = newWidth / newHeight
-    camera.updateProjectionMatrix()
-    renderer.setSize(newWidth, newHeight)
-  })
-  resizeObserver.observe(containerRef.value)
-})
-
-// Реактивная остановка/возобновление rAF при смене вкладки.
-// Проп active = true на dashboard, иначе false. Без рендеринга вне dashboard
-// WebView2 dispatcher не получает постоянных invalidate-сообщений.
-watch(() => props.active, (v) => {
-  if (v) startLoop(); else stopLoop()
-})
+watch(
+  () => props.speed,
+  (v) => {
+    targetSpeedF = Math.min(1, (v || 0) / (1024 * 1024) / 8)
+  },
+)
 
 onBeforeUnmount(() => {
-  stopLoop()
-  if (resizeObserver && containerRef.value) resizeObserver.unobserve(containerRef.value)
-
-  if (renderer) {
-    renderer.dispose()
-    renderer.forceContextLoss()
-  }
-
-  const disposeMesh = (mesh: THREE.Mesh | THREE.Points) => {
-    if (mesh) {
-      mesh.geometry.dispose()
-      ;(mesh.material as THREE.Material).dispose()
-    }
-  }
-
-  disposeMesh(core)
-  disposeMesh(wireframe)
-  disposeMesh(particles)
-  disposeMesh(ambient)
-  disposeMesh(innerCore1)
-  disposeMesh(innerCore2)
+  stop()
+  document.removeEventListener('visibilitychange', onVisibility)
+  if (resizeObserver && canvasRef.value) resizeObserver.unobserve(canvasRef.value)
+  resizeObserver = null
+  ctx = null
 })
 </script>
 
 <template>
-  <div ref="containerRef" class="w-full h-full pointer-events-none absolute inset-0"></div>
+  <div class="sphere-root">
+    <canvas ref="canvasRef" class="pulsar-canvas" width="380" height="380" aria-hidden="true" />
+    <span class="orbit-note">{{ note }}</span>
+  </div>
 </template>
+
+<style scoped>
+.sphere-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.pulsar-canvas {
+  width: min(42vh, 380px);
+  height: min(42vh, 380px);
+  max-width: 100%;
+  max-height: 100%;
+}
+.orbit-note {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 500 10.5px var(--f-mono);
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .pulsar-canvas {
+    width: 210px;
+    height: 210px;
+  }
+}
+</style>

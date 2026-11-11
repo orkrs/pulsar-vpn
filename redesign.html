@@ -1,0 +1,1560 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulsar VPN — концепт редизайна</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#08090f;
+  --frame:#0d0f17;
+  --surface:#12141f;
+  --surface2:#171a27;
+  --surface3:#1d2130;
+  --line:rgba(255,255,255,.07);
+  --line-strong:rgba(255,255,255,.12);
+  --text:#eceef6;
+  --muted:#9aa1b5;
+  --faint:#5b6275;
+  --accent:#8b7cff;
+  --accent-soft:rgba(139,124,255,.13);
+  --good:#3ddc97;
+  --good-soft:rgba(61,220,151,.12);
+  --warn:#f0b35c;
+  --bad:#f27070;
+  --bad-soft:rgba(242,112,112,.12);
+  --f-display:'Unbounded',system-ui,sans-serif;
+  --f-ui:'Manrope',system-ui,sans-serif;
+  --f-mono:'JetBrains Mono',ui-monospace,monospace;
+  --r-card:16px;
+  --r-input:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  background-image:radial-gradient(1100px 520px at 70% -10%, rgba(139,124,255,.07), transparent 60%),
+                   radial-gradient(900px 500px at 0% 110%, rgba(61,220,151,.04), transparent 60%);
+  font-family:var(--f-ui);
+  color:var(--text);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:28px 16px;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(139,124,255,.35)}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font-family:inherit;color:inherit;background:none;border:none;outline:none}
+svg{display:block}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:6px;border:2px solid var(--frame)}
+::-webkit-scrollbar-track{background:transparent}
+
+.app{
+  width:min(980px,100%);
+  height:min(680px,92dvh);
+  min-height:560px;
+  background:var(--frame);
+  border:1px solid var(--line);
+  border-radius:20px;
+  box-shadow:0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.04);
+  display:flex;overflow:hidden;
+}
+
+.rail{
+  width:68px;flex:none;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;
+  padding:18px 0;background:rgba(255,255,255,.012);
+}
+.logo{width:34px;height:34px;margin-bottom:auto;color:var(--accent)}
+.logo-core{animation:breathe 3s ease-in-out infinite alternate}
+@keyframes breathe{from{opacity:.45}to{opacity:1}}
+.nav{display:flex;flex-direction:column;gap:6px}
+.nav-btn{
+  width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+  color:var(--faint);position:relative;transition:color .2s,background .2s,transform .15s;
+}
+.nav-btn:hover{color:var(--muted);background:var(--surface)}
+.nav-btn:active{transform:scale(.94)}
+.nav-btn.on{color:var(--text);background:var(--surface2)}
+.nav-btn.on::before{content:"";position:absolute;left:-12px;top:12px;bottom:12px;width:2px;border-radius:2px;background:var(--accent)}
+.ver{font:500 10px var(--f-mono);color:var(--faint);letter-spacing:.08em;margin-top:auto;padding-top:16px}
+
+.stage{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{
+  height:58px;flex:none;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;padding:0 26px;
+}
+.tb-title{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.tb-status{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:7px 13px;transition:border-color .3s,color .3s}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:background .3s}
+.app[data-vpn="on"] .tb-status{color:var(--good);border-color:rgba(61,220,151,.25)}
+.app[data-vpn="on"] .dot{background:var(--good);box-shadow:0 0 0 3px var(--good-soft)}
+.app[data-vpn="connecting"] .dot,.app[data-vpn="disconnecting"] .dot{background:var(--warn)}
+.app[data-vpn="connecting"] .tb-status,.app[data-vpn="disconnecting"] .tb-status{color:var(--warn)}
+
+.views{flex:1;min-height:0;position:relative}
+.view{position:absolute;inset:0;padding:26px;opacity:0;transform:translateX(10px);
+  pointer-events:none;transition:opacity .28s ease,transform .28s cubic-bezier(.16,1,.3,1);overflow-y:auto}
+.view.on{opacity:1;transform:none;pointer-events:auto}
+
+.view-connect{display:grid;grid-template-columns:1.15fr .85fr;gap:20px;align-items:center}
+.c-left{display:flex;flex-direction:column;gap:22px;max-width:430px}
+.status-word{font-family:var(--f-display);font-weight:600;font-size:clamp(30px,4.4vw,46px);
+  letter-spacing:.01em;line-height:1.08;transition:color .4s}
+.status-word.shake{animation:shake .34s ease}
+@keyframes shake{20%{transform:translateX(-3px)}45%{transform:translateX(3px)}70%{transform:translateX(-2px)}90%{transform:translateX(1px)}}
+.app[data-vpn="on"] .status-word{color:var(--good)}
+.app[data-vpn="connecting"] .status-word,.app[data-vpn="disconnecting"] .status-word{color:var(--warn)}
+.status-sub{font-size:14px;color:var(--muted);margin-top:10px;line-height:1.5}
+.status-sub b{color:var(--text);font-weight:700}
+
+.profile-card{
+  display:flex;align-items:center;gap:14px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-card);padding:14px 16px;
+  cursor:pointer;transition:border-color .2s,transform .15s;width:fit-content;min-width:320px;
+}
+.profile-card:hover{border-color:var(--line-strong)}
+.profile-card:active{transform:scale(.985)}
+.pc-mark{width:40px;height:40px;border-radius:11px;background:var(--accent-soft);color:var(--accent);
+  display:grid;place-items:center;flex:none}
+.pc-body{min-width:0}
+.pc-name{font-size:14.5px;font-weight:700}
+.pc-meta{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:12px;color:var(--muted)}
+.badge{font:600 10px var(--f-mono);letter-spacing:.06em;padding:2px 7px;border-radius:5px;
+  border:1px solid var(--line-strong);color:var(--muted)}
+.ping{font:500 11px var(--f-mono)}
+.ping i{font-style:normal;display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px}
+.ping.g i{background:var(--good)}.ping.y i{background:var(--warn)}.ping.r i{background:var(--bad)}
+.pc-change{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--accent);white-space:nowrap}
+
+.stats{display:flex;gap:0;border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);width:fit-content;min-width:320px}
+.stat{padding:14px 20px;flex:1}
+.stat+.stat{border-left:1px solid var(--line)}
+.stat-label{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.stat-val{font:500 21px var(--f-mono);margin-top:5px;font-variant-numeric:tabular-nums;display:inline-block;transform-origin:left center}
+.stat-val.pop{animation:pop .18s ease}
+@keyframes pop{50%{transform:scale(1.07)}}
+.stat-val small{font-size:11.5px;color:var(--muted);font-weight:400;margin-left:3px}
+
+.cta-row{display:flex;align-items:center;gap:18px;margin-top:2px}
+.power{
+  width:76px;height:76px;border-radius:50%;flex:none;position:relative;display:grid;place-items:center;
+  color:var(--muted);background:var(--surface2);border:1px solid var(--line-strong);
+  transition:color .3s,border-color .3s,box-shadow .3s,transform .15s;
+}
+.power:hover{border-color:var(--accent);color:var(--text)}
+.power:active{transform:scale(.96)}
+.power.busy{pointer-events:none}
+.power svg{width:26px;height:26px}
+.power .ripple{position:absolute;inset:-1px;border-radius:50%;border:2px solid currentColor;
+  animation:rip .55s ease-out forwards;pointer-events:none}
+@keyframes rip{from{opacity:.45;transform:scale(1)}to{opacity:0;transform:scale(1.5)}}
+.app[data-vpn="connecting"] .power::after,.app[data-vpn="disconnecting"] .power::after{
+  content:"";position:absolute;inset:-8px;border-radius:50%;
+  border:2px solid rgba(240,179,92,.2);border-top-color:var(--warn);
+  animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.app[data-vpn="on"] .power{color:var(--good);border-color:rgba(61,220,151,.4);box-shadow:0 0 34px rgba(61,220,151,.12), inset 0 0 18px rgba(61,220,151,.05)}
+.cta-text{font-size:15px;font-weight:700;min-width:120px}
+.cta-hint{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-top:3px}
+
+.sphere-wrap{position:relative;height:min(52vh,420px);display:grid;place-items:center}
+#pulsar{width:min(42vh,380px);height:min(42vh,380px)}
+.orbit-note{position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);
+  font:500 10.5px var(--f-mono);letter-spacing:.1em;color:var(--faint);white-space:nowrap}
+
+.view-profiles{display:flex;flex-direction:column;gap:16px}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.search{flex:1;min-width:180px;display:flex;align-items:center;gap:10px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-input);padding:0 13px;height:42px;color:var(--faint);
+  transition:border-color .2s}
+.search:focus-within{border-color:var(--accent)}
+.search input{flex:1;height:100%;font-size:14px;color:var(--text)}
+.search input::placeholder{color:var(--faint)}
+.seg{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-input);padding:3px;height:42px}
+.seg button{padding:0 14px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--muted);transition:all .2s}
+.seg button.on{background:var(--surface3);color:var(--text)}
+.btn-accent{height:42px;padding:0 18px;border-radius:var(--r-input);background:var(--accent);color:#14122b;
+  font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .15s,filter .2s}
+.btn-accent:hover{filter:brightness(1.08)}
+.btn-accent:active{transform:scale(.97)}
+.btn-accent:disabled{opacity:.5;pointer-events:none}
+.btn-ghost{height:42px;padding:0 14px;border-radius:var(--r-input);border:1px solid var(--line-strong);
+  font-size:12.5px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:8px;
+  transition:border-color .2s,color .2s,transform .15s}
+.btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+.btn-ghost:active{transform:scale(.97)}
+.btn-ghost:disabled{opacity:.5;pointer-events:none}
+
+.sub-strip{display:flex;align-items:center;gap:18px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-card);padding:14px 18px}
+.sub-info{min-width:0}
+.sub-name{font-size:13.5px;font-weight:700}
+.sub-expire{font-size:12px;color:var(--muted);margin-top:2px}
+.sub-meter{flex:1;max-width:280px;margin-left:auto}
+.meter-track{height:4px;border-radius:4px;background:var(--surface3);overflow:hidden}
+.meter-fill{height:100%;width:0%;border-radius:4px;background:linear-gradient(90deg,var(--accent),#b3a6ff);
+  transition:width .9s cubic-bezier(.16,1,.3,1)}
+.meter-cap{font:500 11px var(--f-mono);color:var(--muted);margin-top:6px;text-align:right}
+
+.plist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);overflow:visible}
+.prow{position:relative;display:flex;align-items:center;gap:14px;padding:13px 18px;cursor:pointer;transition:background .15s}
+.prow:hover{background:var(--surface2)}
+.prow+.prow{border-top:1px solid var(--line)}
+.prow.sel{background:var(--accent-soft)}
+.radio{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line-strong);flex:none;display:grid;place-items:center;transition:border-color .2s}
+.radio::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);transform:scale(0);transition:transform .2s}
+.prow.sel .radio{border-color:var(--accent)}
+.prow.sel .radio::after{transform:scale(1)}
+.prow-name{font-size:14px;font-weight:600}
+.prow-host{font:400 11.5px var(--f-mono);color:var(--faint);margin-top:2px}
+.prow-ping{margin-left:auto;font:500 12px var(--f-mono);white-space:nowrap}
+.prow-ping.checking{color:var(--faint)}
+.prow-ping.checking i{animation:blinkdot .8s ease-in-out infinite}
+@keyframes blinkdot{50%{opacity:.25}}
+.kebab{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--faint);opacity:0;transition:opacity .2s,background .2s}
+.prow:hover .kebab,.menu-open .kebab{opacity:1}
+.kebab:hover{background:var(--surface3);color:var(--text)}
+.menu{position:absolute;right:12px;top:calc(100% - 8px);z-index:30;min-width:200px;
+  background:var(--surface3);border:1px solid var(--line-strong);border-radius:12px;padding:6px;
+  box-shadow:0 18px 44px rgba(0,0,0,.55);
+  opacity:0;transform:translateY(-4px) scale(.98);pointer-events:none;transition:opacity .18s,transform .18s cubic-bezier(.16,1,.3,1)}
+.menu.open{opacity:1;transform:none;pointer-events:auto}
+.menu button{display:flex;width:100%;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;
+  font-size:13px;font-weight:600;color:var(--muted);transition:background .15s,color .15s;text-align:left}
+.menu button:hover{background:var(--surface2);color:var(--text)}
+.menu button.danger:hover{color:var(--bad)}
+.esearch{padding:34px 20px;text-align:center;color:var(--faint);font-size:13.5px;display:none}
+.esearch.show{display:block}
+.esearch svg{margin:0 auto 10px;color:var(--faint)}
+
+.view-settings{display:flex;flex-direction:column;gap:26px;max-width:640px}
+.group-title{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:10px}
+.gcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card)}
+.grow{display:flex;align-items:center;gap:14px;padding:15px 18px}
+.grow+.grow{border-top:1px solid var(--line)}
+.gt{font-size:14px;font-weight:600}
+.gd{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.45}
+.switch{margin-left:auto;width:42px;height:24px;border-radius:999px;background:var(--surface3);
+  border:1px solid var(--line-strong);position:relative;flex:none;transition:background .25s,border-color .25s}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+  background:var(--muted);transition:transform .25s cubic-bezier(.16,1,.3,1),background .25s}
+.switch[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(18px);background:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:8px;padding:14px 18px;border-top:1px solid var(--line)}
+.gcol{padding:15px 18px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line)}
+.tageditor{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:9px 11px;
+  background:#0f111a;border:1px solid var(--line);border-radius:var(--r-input);cursor:text;transition:border-color .2s}
+.tageditor:focus-within{border-color:var(--accent)}
+.tagchip{display:inline-flex;align-items:center;gap:6px;font:500 11.5px var(--f-mono);
+  color:var(--text);background:var(--surface3);border:1px solid var(--line-strong);border-radius:7px;padding:5px 7px 5px 9px}
+.tag-x{display:grid;place-items:center;width:15px;height:15px;border-radius:4px;color:var(--muted);
+  transition:color .15s,background .15s}
+.tag-x:hover{color:var(--bad);background:rgba(242,112,112,.13)}
+.tageditor input{flex:1;min-width:130px;height:26px;font:400 12.5px var(--f-mono);color:var(--text)}
+.tageditor input::placeholder{color:var(--faint)}
+.tag-hint{font-size:11px;color:var(--faint);line-height:1.45}
+.chip{font:600 11.5px var(--f-mono);padding:7px 11px;border-radius:8px;border:1px solid var(--line-strong);
+  color:var(--muted);display:flex;gap:8px;align-items:center;transition:border-color .2s,color .2s;cursor:pointer}
+.chip b{font-weight:700}
+.chip[data-a="proxy"] b{color:var(--accent)}
+.chip[data-a="direct"] b{color:var(--good)}
+.chip[data-a="block"] b{color:var(--bad)}
+.chip:hover{border-color:var(--accent)}
+.chip-editor{cursor:default;border-style:dashed}
+.chip-editor input{width:36px;font:600 11.5px var(--f-mono);color:var(--text);text-transform:uppercase;text-align:center}
+.chip-editor b{cursor:pointer}
+.chip-editor .cc-ok{display:grid;place-items:center;color:var(--accent)}
+.chip-editor.err{border-color:var(--bad);animation:shake .3s ease}
+.dns-seg{margin-left:auto}
+
+.view-logs{display:flex;flex-direction:column;gap:14px}
+.logs-head{display:flex;align-items:center;gap:10px}
+.term{flex:1;min-height:0;background:#0a0c12;border:1px solid var(--line);border-radius:var(--r-card);
+  padding:16px 18px;overflow-y:auto;font:400 12.5px/1.85 var(--f-mono)}
+.tl{white-space:pre-wrap;word-break:break-word;color:var(--muted)}
+.tl .t{color:var(--faint)}
+.tl.info .lv{color:var(--accent)}
+.tl.ok .lv{color:var(--good)}
+.tl.warn .lv{color:var(--warn)}
+.tl.err .lv{color:var(--bad)}
+.tl.sys{color:var(--faint)}
+.caret{display:inline-block;width:7px;height:12px;background:var(--accent);vertical-align:-2px;
+  animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.overlay{position:fixed;inset:0;z-index:40;background:rgba(5,6,10,.62);
+  display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .22s}
+.overlay.open{opacity:1;pointer-events:auto}
+.modal{width:min(430px,92vw);background:var(--frame);border:1px solid var(--line-strong);border-radius:var(--r-card);
+  padding:22px;display:flex;flex-direction:column;gap:14px;
+  transform:translateY(12px) scale(.97);transition:transform .24s cubic-bezier(.16,1,.3,1)}
+.overlay.open .modal{transform:none}
+.m-head{display:flex;align-items:center;justify-content:space-between}
+.m-title{font-size:15px;font-weight:800}
+.m-close{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--muted);transition:background .15s,color .15s}
+.m-close:hover{background:var(--surface3);color:var(--text)}
+.field{display:flex;flex-direction:column;gap:7px}
+.field span{font-size:12px;font-weight:600;color:var(--muted)}
+.field input{height:44px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-input);
+  padding:0 13px;font:400 13px var(--f-mono);color:var(--text);transition:border-color .2s}
+.field input:focus{border-color:var(--accent)}
+.field input::placeholder{color:var(--faint)}
+.m-err{font-size:12px;color:var(--bad);min-height:16px;font-weight:600}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:var(--surface3);
+  border:1px solid var(--line-strong);color:var(--text);font-size:13px;font-weight:600;
+  padding:10px 18px;border-radius:999px;opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.16,1,.3,1);z-index:50}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+.caption{font:500 11px var(--f-mono);letter-spacing:.1em;color:var(--faint)}
+
+button:focus-visible,.search:focus-within,.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+@media (max-width:760px){
+  body{padding:0}
+  .app{height:100dvh;border-radius:0;border:none;flex-direction:column-reverse}
+  .rail{width:auto;height:64px;flex-direction:row;justify-content:center;gap:4px;border-right:none;border-top:1px solid var(--line);padding:0 10px}
+  .logo,.ver{display:none}
+  .nav{flex-direction:row}
+  .nav-btn.on::before{left:10px;right:10px;top:auto;bottom:-2px;width:auto;height:2px}
+  .view-connect{grid-template-columns:1fr;gap:8px;align-content:start}
+  .sphere-wrap{order:-1;height:230px}
+  #pulsar{width:210px;height:210px}
+  .profile-card,.stats{min-width:0;width:100%}
+  .sub-meter{display:none}
+  .kebab{opacity:1}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<div class="app" id="app" data-vpn="off">
+
+  <aside class="rail">
+    <svg class="logo" viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="17" cy="17" r="4" fill="currentColor" stroke="none"/>
+      <path d="M17 3a14 14 0 0 1 14 14"/><path d="M17 31A14 14 0 0 1 3 17" opacity=".45"/>
+      <circle class="logo-core" cx="17" cy="17" r="1.6" fill="#fff" stroke="none" opacity=".7"/>
+    </svg>
+    <nav class="nav">
+      <button class="nav-btn on" data-view="connect" title="Подключение" aria-label="Подключение">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 9.3-8 11-4.5-1.7-8-6-8-11V5l8-3z"/></svg>
+      </button>
+      <button class="nav-btn" data-view="profiles" title="Серверы" aria-label="Серверы">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.8 2.6 4.2 5.6 4.2 9S14.8 18.4 12 21c-2.8-2.6-4.2-5.6-4.2-9S9.2 5.6 12 3z"/></svg>
+      </button>
+      <button class="nav-btn" data-view="settings" title="Настройки" aria-label="Настройки">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg>
+      </button>
+      <button class="nav-btn" data-view="logs" title="Журнал" aria-label="Журнал">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3.5 3L7 15M12.5 15H17"/></svg>
+      </button>
+    </nav>
+    <span class="ver">v2.1</span>
+  </aside>
+
+  <main class="stage">
+    <header class="topbar">
+      <span class="tb-title" id="tbTitle">Подключение</span>
+      <span class="tb-status"><span class="dot"></span><span id="tbLabel">Отключено</span></span>
+      <button class="btn-ghost" id="quickAddBtn" style="height:36px;font-size:12px" title="Вставить из буфера обмена">Paste</button>
+    </header>
+
+    <div class="views">
+
+      <section class="view view-connect on" data-view="connect">
+        <div class="c-left">
+          <div>
+            <h1 class="status-word" id="statusWord">НЕ ЗАЩИЩЕНО</h1>
+            <p class="status-sub" id="statusSub"></p>
+          </div>
+
+          <div class="profile-card" id="profileCard" role="button" tabindex="0">
+            <span class="pc-mark">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg>
+            </span>
+            <span class="pc-body">
+              <span class="pc-name" id="pcName">—</span><br>
+              <span class="pc-meta"><span class="badge" id="pcProto">VLESS</span><span class="ping g" id="pcPing"><i></i>— мс</span></span>
+            </span>
+            <span class="pc-change">Сменить</span>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><div class="stat-label">Приём</div><div class="stat-val"><span id="dlVal">0.0</span><small>Мбит/с</small></div></div>
+            <div class="stat"><div class="stat-label">Отдача</div><div class="stat-val"><span id="ulVal">0.0</span><small>Мбит/с</small></div></div>
+            <div class="stat"><div class="stat-label">Сессия</div><div class="stat-val" id="sessVal">00:00</div></div>
+          </div>
+
+          <div class="cta-row">
+            <button class="power" id="powerBtn" aria-label="Подключить">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.5a8 8 0 1 0 11.4 0"/></svg>
+            </button>
+            <span class="cta-text">
+              <span id="ctaLabel">Подключить</span>
+              <span class="cta-hint" id="ctaHint"></span>
+            </span>
+          </div>
+        </div>
+
+        <div class="sphere-wrap">
+          <canvas id="pulsar" width="380" height="380"></canvas>
+          <span class="orbit-note" id="orbitNote">CANVAS2D · 30 FPS CAP · IDLE: LOOP STOPPED</span>
+        </div>
+      </section>
+
+      <section class="view view-profiles" data-view="profiles">
+        <div class="toolbar">
+          <label class="search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.2-3.2"/></svg>
+            <input type="text" placeholder="Поиск сервера или адреса…" id="searchInput">
+          </label>
+          <div class="seg" id="sortSeg">
+            <button class="on" data-sort="name">По имени</button>
+            <button data-sort="ping">По пингу</button>
+          </div>
+          <button class="btn-ghost" id="pingBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 5a7 7 0 0 1 7 7"/><path d="M12 8.5A3.5 3.5 0 0 1 15.5 12"/></svg>
+            Пинг
+          </button>
+          <button class="btn-accent" id="importBtn">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Импорт
+          </button>
+        </div>
+
+        <div class="sub-strip" id="subStrip">
+          <div class="sub-info">
+            <div class="sub-name" id="subName">Локальные узлы</div>
+            <div class="sub-expire" id="subExpire">Вручную добавленные профили</div>
+          </div>
+          <div class="sub-meter">
+            <div class="meter-track"><div class="meter-fill" id="meterFill"></div></div>
+            <div class="meter-cap" id="subCount">7 узлов</div>
+          </div>
+        </div>
+
+        <div class="plist" id="plist"></div>
+        <div class="esearch" id="esearch">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.2-3.2"/></svg>
+          <div>Ничего не найдено. Попробуйте другой запрос или импортируйте профиль.</div>
+        </div>
+      </section>
+
+      <section class="view view-settings" data-view="settings">
+        <div>
+          <div class="group-title">Общие</div>
+          <div class="gcard">
+            <div class="grow"><div><div class="gt">Автозапуск с системой</div><div class="gd">Стартовать клиент при входе в Windows.</div></div><button class="switch" role="switch" aria-checked="true" data-set="autostart"></button></div>
+            <div class="grow"><div><div class="gt">Сворачивать в трей</div><div class="gd">Закрытие окна сворачивает приложение, соединение не рвётся.</div></div><button class="switch" role="switch" aria-checked="true" data-set="tray"></button></div>
+            <div class="grow"><div><div class="gt">Стриминг логов в интерфейс</div><div class="gd">Показывать поток событий демона на вкладке «Журнал».</div></div><button class="switch" role="switch" aria-checked="true" data-set="logs"></button></div>
+          </div>
+        </div>
+        <div>
+          <div class="group-title">Маршрутизация</div>
+          <div class="gcard">
+            <div class="grow"><div><div class="gt">Режим</div><div class="gd">Какой трафик отправлять через туннель.</div></div>
+              <div class="seg dns-seg" id="modeSeg" style="height:36px">
+                <button class="on" data-m="global">Global</button><button data-m="bypass">Bypass</button><button data-m="proxy">Only VPN</button>
+              </div>
+            </div>
+            <div class="gcol">
+              <div>
+                <div class="gt">Сайты</div>
+                <div class="gd">Домены для режимов «Кроме» и «Только». Enter — добавить.</div>
+              </div>
+              <div class="tageditor" id="domainEditor"></div>
+              <div class="tag-hint">Точные домены и wildcard: example.com, *.cdn.net</div>
+            </div>
+            <div class="gcol">
+              <div>
+                <div class="gt">Приложения</div>
+                <div class="gd">Процессы для тех же режимов. На Windows суффикс .exe добавится сам.</div>
+              </div>
+              <div class="tageditor" id="appEditor"></div>
+              <div class="tag-hint">Имя процесса: chrome.exe, telegram.exe, steam.exe</div>
+            </div>
+            <div class="chips" id="geoChips"></div>
+            <div class="grow"><div><div class="gt">GeoIP-маршрутизация</div><div class="gd">Маршрут трафика по стране IP назначения.</div></div><button class="switch" role="switch" aria-checked="false" data-set="geoEnabled"></button></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view view-logs" data-view="logs">
+        <div class="logs-head">
+          <div class="seg" id="logSeg" style="height:36px">
+            <button class="on" data-lv="all">Все</button><button data-lv="info">Инфо</button><button data-lv="err">Ошибки</button>
+          </div>
+          <button class="btn-accent" id="clearLogs" style="margin-left:auto;height:36px">Очистить</button>
+        </div>
+        <div class="term" id="term"></div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Импорт профиля">
+    <div class="m-head">
+      <span class="m-title">Импорт профиля</span>
+      <button class="m-close" id="modalClose" aria-label="Закрыть">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="seg" id="impSeg" style="height:38px">
+      <button class="on" data-t="link">Ссылка</button><button data-t="sub">Подписка</button>
+    </div>
+    <label class="field">
+      <span id="impLabel">vless:// или hy2:// ссылка</span>
+      <input id="impInput" spellcheck="false" placeholder="vless://…@host:443?…#Frankfurt">
+    </label>
+    <div class="m-err" id="impErr"></div>
+    <button class="btn-accent" id="impGo" style="height:44px">Добавить</button>
+  </div>
+</div>
+
+<span class="caption">PULSAR VPN · КОНЦЕПТ РЕДИЗАЙНА · ИНТЕРАКТИВНЫЙ ПРОТОТИП</span>
+<div class="toast" id="toast"></div>
+
+<div class="overlay" id="editOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Настройки узла">
+    <div class="m-head">
+      <span class="m-title">Настройки узла</span>
+      <button class="m-close" id="editModalClose" aria-label="Закрыть">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="grow"><div><div class="gt">DNS-транспорт</div><div class="gd">DoH — шифрованный резолв. Меняйте, если сервер не подconnect (Hysteria2).</div></div>
+      <div class="seg dns-seg" id="editDnsSeg" style="height:36px">
+        <button class="on" data-dns="https">HTTPS</button><button data-dns="http">HTTP</button><button data-dns="udp">UDP</button>
+      </div>
+    </div>
+    <div class="grow"><div><div class="gt">Allow insecure</div><div class="gd">Пропустить проверку TLS (самоподписанные сертификаты).</div></div><button class="switch" role="switch" aria-checked="false" id="editInsecure"></button></div>
+    <div class="grow"><div><div class="gt">IPv6</div><div class="gd">Выкл: только IPv4 (TUN, DNS, dial). Вкл: разрешить IPv6.</div></div><button class="switch" role="switch" aria-checked="false" id="editIpv6"></button></div>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <button class="btn-ghost" id="editCancel" style="flex:1;height:40px">Отмена</button>
+      <button class="btn-accent" id="editSave" style="flex:1;height:40px">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="wizardOverlay">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:480px;text-align:center" aria-label="Мастер настройки">
+    <div id="wzBody"></div>
+    <div style="display:flex;gap:6px;justify-content:center;margin-top:20px" id="wzDots"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let toastTimer = null;
+function toast(msg){
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1900);
+}
+
+function pop(el){
+  if (REDUCED) return;
+  el.classList.remove("pop");
+  void el.offsetWidth;
+  el.classList.add("pop");
+}
+function shake(el){
+  if (REDUCED) return;
+  el.classList.remove("shake");
+  void el.offsetWidth;
+  el.classList.add("shake");
+}
+
+const KEY = "pulsar.demo.v1";
+const seedProfiles = () => [
+  { id:"p1", n:"Frankfurt · Edge-7",  h:"de-fra-07.edge.pulsar.net:443", p:"VLESS", ms:38, dns:"https", insecure:false, ipv6:false },
+  { id:"p2", n:"Amsterdam · Core-2",  h:"nl-ams-02.core.pulsar.net:443", p:"HY2",   ms:51, dns:"https", insecure:false, ipv6:false },
+  { id:"p3", n:"Helsinki · North-1",  h:"fi-hel-01.north.pulsar.net:443", p:"VLESS", ms:64, dns:"https", insecure:false, ipv6:false },
+  { id:"p4", n:"Warsaw · Relay-4",    h:"pl-waw-04.relay.pulsar.net:443", p:"HY2",   ms:77, dns:"https", insecure:false, ipv6:false },
+  { id:"p5", n:"Ashburn · US-East-1", h:"us-iad-01.east.pulsar.net:443",  p:"VLESS", ms:118, dns:"https", insecure:false, ipv6:false },
+  { id:"p6", n:"Singapore · APAC-3",  h:"sg-sin-03.apac.pulsar.net:443",  p:"HY2",   ms:186, dns:"https", insecure:false, ipv6:false },
+  { id:"p7", n:"Tokyo · APAC-9",      h:"jp-tyo-09.apac.pulsar.net:443",  p:"VLESS", ms:241, dns:"https", insecure:false, ipv6:false }
+];
+const defaultSettings = () => ({
+  autostart:true, tray:true, logs:true,
+  mode:"global",
+  domains:["youtube.com","openai.com"],
+  apps:["chrome.exe","steam.exe"],
+  geoEnabled:false,
+  geo:[{cc:"RU",a:"direct"},{cc:"US",a:"proxy"},{cc:"DE",a:"proxy"}]
+});
+let profiles = seedProfiles();
+let nextId = 8;
+let selectedId = "p1";
+let settings = defaultSettings();
+
+(function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (Array.isArray(d.profiles) && d.profiles.length){ profiles = d.profiles; }
+    if (d.settings) settings = Object.assign(defaultSettings(), d.settings);
+    if (typeof d.nextId === "number") nextId = d.nextId;
+  }catch(e){}
+  if (!profiles.find(p => p.id === selectedId)) selectedId = profiles[0] ? profiles[0].id : null;
+})();
+function save(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify({ profiles, settings, nextId }));
+  }catch(e){}
+}
+
+const MODE_LABELS = { global:"Весь трафик", bypass:"Кроме списка", proxy:"Только список" };
+const cur = () => profiles.find(p => p.id === selectedId) || profiles[0] || null;
+
+const app = $("#app");
+const vpn = { state:"off", t0:null };
+const SPEED = { dl:0, ul:0 };
+let bytesTotal = 0;
+
+function fmtSpeed(v){ return (v >= 100 ? Math.round(v) : v.toFixed(1)).toString(); }
+function fmtTime(ms){
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  const p = n => String(n).padStart(2,"0");
+  return h ? `${h}:${p(m)}:${p(ss)}` : `${p(m)}:${p(ss)}`;
+}
+function pingClass(ms){ return ms < 70 ? "g" : ms < 150 ? "y" : "r"; }
+function plural(n, one, few, many){
+  const m10 = n % 10, m100 = n % 100;
+  return n + " " + (m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? few : many);
+}
+function listSummary(){
+  const d = settings.domains.length, a = settings.apps.length;
+  if (!d && !a) return "";
+  const parts = [];
+  if (d) parts.push(plural(d, "сайт", "сайта", "сайтов"));
+  if (a) parts.push(plural(a, "приложение", "приложения", "приложений"));
+  return " · " + parts.join(", ");
+}
+function updateHint(state){
+  const p = cur();
+  const net = p && p.ipv6 ? "IPv4+IPv6" : "IPv4";
+  const dns = p ? (p.dns || "HTTPS").toUpperCase() : "HTTPS";
+  $("#ctaHint").textContent = state === "on"
+    ? `Сессия ${fmtTime(Date.now()-vpn.t0)} · MTU 1280 · ${MODE_LABELS[settings.mode]}${listSummary()}`
+    : `${MODE_LABELS[settings.mode]}${listSummary()} · ${net} · DNS ${dns}`;
+}
+
+let logsEnabled = settings.logs;
+const term = $("#term");
+function ensureCaret(){
+  if (!term.querySelector(".caret-row")){
+    const row = document.createElement("div");
+    row.className = "tl sys caret-row";
+    row.dataset.lv = "keep";
+    row.innerHTML = '<span class="caret"></span>';
+    term.appendChild(row);
+  }
+}
+function syncLogGate(){
+  let ph = term.querySelector(".gate-row");
+  if (!logsEnabled){
+    if (!ph){
+      ph = document.createElement("div");
+      ph.className = "tl sys gate-row";
+      ph.dataset.lv = "keep";
+      ph.textContent = "Стриминг логов отключён в настройках";
+      term.prepend(ph);
+    }
+  } else if (ph) ph.remove();
+}
+function log(level, msg){
+  if (!logsEnabled && level !== "err") return;
+  const cls = level === "ok" ? "ok" : level === "warn" ? "warn" : level === "err" ? "err" : "info";
+  const row = document.createElement("div");
+  row.className = "tl " + cls;
+  row.dataset.lv = cls === "warn" || cls === "err" ? "err" : "info";
+  const t = new Date().toTimeString().slice(0,8);
+  row.innerHTML = `<span class="t">${t}</span>  <span class="lv">${cls.toUpperCase().padEnd(4)}</span> ${msg}`;
+  const nearBottom = term.scrollHeight - term.scrollTop - term.clientHeight < 40;
+  term.insertBefore(row, term.querySelector(".caret-row"));
+  while (term.children.length > 250) {
+    const first = term.firstChild;
+    if (first.classList.contains("caret-row")) break;
+    first.remove();
+  }
+  if (nearBottom) term.scrollTop = term.scrollHeight;
+}
+ensureCaret();
+syncLogGate();
+
+function syncCard(){
+  const p = cur();
+  if (!p){
+    $("#pcName").textContent = "Нет профилей";
+    $("#pcProto").textContent = "—";
+    $("#pcPing").className = "ping r";
+    $("#pcPing").innerHTML = "<i></i>— мс";
+    return;
+  }
+  $("#pcName").textContent = p.n;
+  $("#pcProto").textContent = p.p;
+  const ping = $("#pcPing");
+  ping.className = "ping " + pingClass(p.ms);
+  ping.innerHTML = `<i></i>${p.ms} мс`;
+}
+
+function setVPN(next){
+  vpn.state = next;
+  app.dataset.vpn = next;
+  $("#powerBtn").classList.toggle("busy", next === "connecting" || next === "disconnecting");
+  const W = $("#statusWord"), L = $("#ctaLabel"), T = $("#tbLabel"), S = $("#statusSub");
+  const p = cur();
+  const name = p ? p.n : "—";
+  if (next === "off"){
+    W.textContent = "НЕ ЗАЩИЩЕНО";
+    L.textContent = "Подключить";
+    T.textContent = "Отключено";
+    S.textContent = "Трафик идёт напрямую. Выберите сервер и нажмите кнопку питания.";
+    SPEED.dl = SPEED.ul = 0;
+    $("#dlVal").textContent = "0.0";
+    $("#ulVal").textContent = "0.0";
+    $("#sessVal").textContent = "00:00";
+    updateHint("off");
+  } else if (next === "connecting"){
+    W.textContent = "ПОДКЛЮЧЕНИЕ";
+    L.textContent = "Соединяем…";
+    T.textContent = "Подключение";
+    S.innerHTML = `Генерация конфига Xray и подъём TUN-адаптера для <b>${name}</b>…`;
+  } else if (next === "on"){
+    vpn.t0 = Date.now();
+    W.textContent = "ЗАЩИЩЕНО";
+    L.textContent = "Отключить";
+    T.textContent = "Защищено";
+    S.innerHTML = `Туннель установлен. Режим: <b>${MODE_LABELS[settings.mode]}</b>. Сервер: <b>${name}</b>.`;
+    updateHint("on");
+  } else if (next === "disconnecting"){
+    W.textContent = "ОТКЛЮЧЕНИЕ";
+    L.textContent = "Закрываем…";
+    T.textContent = "Отключение";
+    S.textContent = "Опускание TUN-адаптера и завершение Xray…";
+  }
+}
+
+let tickCount = 0;
+setInterval(() => {
+  if (vpn.state !== "on") return;
+  tickCount++;
+  const drift = (base, amp) => Math.max(0, base + (Math.random()*2-1)*amp);
+  SPEED.dl = drift(SPEED.dl || 22, 6);
+  SPEED.ul = drift(SPEED.ul || 5, 1.8);
+  bytesTotal += SPEED.dl * 125000;
+  sphere.setSpeed(SPEED.dl);
+  const dlEl = $("#dlVal"), ulEl = $("#ulVal");
+  const dls = fmtSpeed(SPEED.dl), uls = fmtSpeed(SPEED.ul);
+  if (dlEl.textContent !== dls){ dlEl.textContent = dls; pop(dlEl.parentElement); }
+  if (ulEl.textContent !== uls){ ulEl.textContent = uls; pop(ulEl.parentElement); }
+  $("#sessVal").textContent = fmtTime(Date.now() - vpn.t0);
+  updateHint("on");
+  if (tickCount % 9 === 0){
+    const gb = (bytesTotal / 1e9).toFixed(2);
+    const msgs = [
+      `Трафик за сессию: ${gb} ГБ`,
+      "Ротация session-key выполнена",
+      `Статистика отправлена · ${Math.round(SPEED.dl)} Мбит/с вниз`,
+      "Keep-alive до ядра пройден"
+    ];
+    log("info", msgs[(tickCount / 9 - 1) % msgs.length | 0]);
+  }
+}, 1000);
+
+function connectFlow(){
+  const p = cur();
+  if (!p){ toast("Сначала добавьте профиль"); return; }
+  setVPN("connecting");
+  sphere.set("connecting");
+  let attempt = 1;
+  const attemptOnce = () => {
+    log("info", `Хендшейк с ${p.n} (${p.ms} мс), попытка ${attempt}…`);
+    const ok = attempt >= 2 || Math.random() > 0.3;
+    setTimeout(() => {
+      if (vpn.state !== "connecting") return;
+      if (ok){
+        setVPN("on");
+        sphere.set("on");
+        log("ok", "Туннель установлен — трафик защищён");
+        toast(`Подключено к ${p.n}`);
+      } else {
+        attempt++;
+        log("warn", `Хендшейк не прошёл — повтор (${attempt}/2)`);
+        shake($("#statusWord"));
+        attemptOnce();
+      }
+    }, 650 + Math.random()*500);
+  };
+  attemptOnce();
+}
+
+$("#powerBtn").addEventListener("click", e => {
+  const r = document.createElement("span");
+  r.className = "ripple";
+  e.currentTarget.appendChild(r);
+  r.addEventListener("animationend", () => r.remove());
+  if (vpn.state === "off"){
+    connectFlow();
+  } else if (vpn.state === "on"){
+    setVPN("disconnecting");
+    sphere.set("off");
+    log("warn", "Разрыв туннеля…");
+    setTimeout(() => {
+      setVPN("off");
+      log("ok", "Соединение закрыто");
+    }, 750);
+  }
+});
+
+$$(".nav-btn").forEach(b => b.addEventListener("click", () => {
+  $$(".nav-btn").forEach(x => x.classList.toggle("on", x === b));
+  $$(".view").forEach(v => v.classList.toggle("on", v.dataset.view === b.dataset.view));
+  $("#tbTitle").textContent = {connect:"Подключение", profiles:"Серверы", settings:"Настройки", logs:"Журнал"}[b.dataset.view];
+  if (b.dataset.view === "profiles" && !navBtn._meterDone){
+    navBtn._meterDone = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => { $("#meterFill").style.width = "49%"; }));
+  }
+}));
+const navBtn = $(".nav-btn");
+
+$("#profileCard").addEventListener("click", () => $$(".nav-btn").find(b => b.dataset.view === "profiles").click());
+$("#profileCard").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#profileCard").click(); } });
+
+let fQuery = "", fSort = "name";
+function renderList(){
+  closeMenus();
+  const list = profiles
+    .filter(p => (p.n + " " + p.h).toLowerCase().includes(fQuery.toLowerCase()))
+    .sort((a,b) => fSort === "ping" ? a.ms - b.ms : a.n.localeCompare(b.n));
+  $("#esearch").classList.toggle("show", list.length === 0);
+  $("#plist").innerHTML = list.map(p => `
+    <div class="prow${p.id === selectedId ? " sel" : ""}" data-id="${p.id}">
+      <span class="radio"></span>
+      <span><span class="prow-name">${p.n}</span><br><span class="prow-host">${p.h}</span></span>
+      <span class="badge">${p.p}</span>
+      <span class="prow-ping ping ${pingClass(p.ms)}"><i></i>${p.ms} мс</span>
+      <button class="kebab" aria-label="Действия">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+      </button>
+      <span class="menu" data-id="${p.id}">
+        <button data-act="use"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Сделать активным</button>
+        <button data-act="copy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Копировать ссылку</button>
+        <button data-act="del" class="danger"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Удалить</button>
+      </span>
+    </div>`).join("");
+}
+function closeMenus(){
+  $$(".menu.open").forEach(m => m.classList.remove("open"));
+  $$(".menu-open").forEach(r => r.classList.remove("menu-open"));
+}
+function trySelect(id){
+  if (id === selectedId) return;
+  if (vpn.state !== "off"){ toast("Сначала отключите туннель"); return; }
+  selectedId = id;
+  syncCard();
+  $$(".prow").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
+  save();
+  toast(`Выбран «${cur().n}»`);
+}
+function copyText(t){
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); toast("Ссылка скопирована"); }
+    catch(e){ toast("Не удалось скопировать"); }
+    ta.remove();
+  };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => toast("Ссылка скопирована")).catch(fallback);
+  else fallback();
+}
+const linkFor = p => `vless://demo@${p.h}?type=tcp&security=tls#${encodeURIComponent(p.n)}`;
+
+function deleteProfile(id){
+  const p = profiles.find(x => x.id === id);
+  if (!p) return;
+  if (id === selectedId && vpn.state !== "off"){ toast("Нельзя удалить активный профиль во время соединения"); return; }
+  const row = $(`.prow[data-id="${id}"]`);
+  const done = () => {
+    profiles = profiles.filter(x => x.id !== id);
+    if (selectedId === id){ selectedId = profiles[0] ? profiles[0].id : null; syncCard(); }
+    save();
+    renderList();
+    toast(`«${p.n}» удалён`);
+  };
+  if (row && row.animate && !REDUCED){
+    row.style.overflow = "hidden";
+    row.animate(
+      [{ opacity:1, height:row.offsetHeight + "px" }, { opacity:0, height:"0px" }],
+      { duration:230, easing:"ease" }
+    ).onfinish = done;
+  } else done();
+}
+
+$("#plist").addEventListener("click", e => {
+  const mb = e.target.closest(".menu button");
+  if (mb){
+    e.stopPropagation();
+    const id = mb.closest(".menu").dataset.id;
+    const act = mb.dataset.act;
+    closeMenus();
+    if (act === "use") trySelect(id);
+    else if (act === "copy") copyText(linkFor(profiles.find(x => x.id === id)));
+    else if (act === "del") deleteProfile(id);
+    return;
+  }
+  const kb = e.target.closest(".kebab");
+  if (kb){
+    e.stopPropagation();
+    const row = kb.closest(".prow");
+    const menu = row.querySelector(".menu");
+    const wasOpen = menu.classList.contains("open");
+    closeMenus();
+    if (!wasOpen){ menu.classList.add("open"); row.classList.add("menu-open"); }
+    return;
+  }
+  const row = e.target.closest(".prow");
+  if (row) trySelect(row.dataset.id);
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest(".kebab") && !e.target.closest(".menu")) closeMenus();
+}, true);
+
+$("#searchInput").addEventListener("input", e => { fQuery = e.target.value; renderList(); });
+$("#sortSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  $$("#sortSeg button").forEach(x => x.classList.toggle("on", x === b));
+  fSort = b.dataset.sort;
+  renderList();
+});
+
+let pinging = false;
+$("#pingBtn").addEventListener("click", async () => {
+  if (pinging) return;
+  pinging = true;
+  $("#pingBtn").disabled = true;
+  const rows = $$("#plist .prow");
+  for (const row of rows){
+    const p = profiles.find(x => x.id === row.dataset.id);
+    const el = row.querySelector(".prow-ping");
+    el.classList.add("checking");
+    el.innerHTML = "<i></i>…";
+    await sleep(170 + Math.random()*260);
+    p.ms = Math.max(12, Math.round(p.ms * (0.75 + Math.random()*0.5)));
+    el.classList.remove("checking");
+    el.className = "prow-ping ping " + pingClass(p.ms);
+    el.innerHTML = `<i></i>${p.ms} мс`;
+  }
+  pinging = false;
+  $("#pingBtn").disabled = false;
+  if (selectedId){ syncCard(); }
+  save();
+  if (fSort === "ping") renderList();
+  toast("Пинг обновлён");
+});
+
+const overlay = $("#overlay");
+function openModal(){
+  $("#impErr").textContent = "";
+  overlay.classList.add("open");
+  setTimeout(() => $("#impInput").focus(), 120);
+}
+function closeModal(){ overlay.classList.remove("open"); }
+$("#importBtn").addEventListener("click", openModal);
+$("#modalClose").addEventListener("click", closeModal);
+overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape"){ closeModal(); closeMenus(); }
+});
+$("#impSeg").addEventListener("click", () => {
+  const t = $("#impSeg .on").dataset.t;
+  $("#impLabel").textContent = t === "link" ? "vless:// или hy2:// ссылка" : "URL подписки (https://…)";
+  $("#impInput").placeholder = t === "link"
+    ? "vless://…@host:443?…#Frankfurt"
+    : "https://sub.example.com/xxxx";
+});
+function parseNodeLink(txt){
+  const m = txt.trim().match(/^(?:vless|vmess|trojan|ss|shadowsocks|wireguard|hysteria2|hy2|warp):\/\/(.+)/i);
+  if (!m) return null;
+  const scheme = m[0].split(":")[0].toLowerCase();
+  const protoMap = { vless:"VLESS", vmess:"VMESS", trojan:"TROJAN", ss:"SS", shadowsocks:"SS", wireguard:"WG", hysteria2:"HY2", hy2:"HY2", warp:"WARP" };
+  const proto = protoMap[scheme] || "Custom";
+  let name = "";
+  try { name = decodeURIComponent((txt.split("#")[1] || "").trim()); } catch(e){}
+  const hostMatch = m[1].match(/@?([^:/?#]+):?(\d+)?/);
+  const host = hostMatch ? hostMatch[1] : "unknown";
+  const port = hostMatch && hostMatch[2] ? hostMatch[2] : "443";
+  name = (name || host).slice(0, 34);
+  return {
+    id: "n" + (nextId++),
+    n: name,
+    h: `${host}:${port}`,
+    p: proto,
+    ms: 30 + Math.floor(Math.random()*170),
+    dns:"https", insecure:false, ipv6:false
+  };
+}
+$("#impGo").addEventListener("click", () => {
+  const val = $("#impInput").value.trim();
+  const err = $("#impErr");
+  err.textContent = "";
+  if (!val){ err.textContent = "Введите ссылку или URL"; return; }
+  const type = $("#impSeg .on").dataset.t;
+  if (type === "link"){
+    const node = parseNodeLink(val);
+    if (!node){ err.textContent = "Не похоже на vless/hy2/trojan ссылку"; return; }
+    if (profiles.some(p => p.h === node.h)){ err.textContent = "Такой адрес уже есть в списке"; return; }
+    profiles.push(node);
+    save();
+    renderList();
+    closeModal();
+    $("#impInput").value = "";
+    toast(`Добавлен профиль «${node.n}»`);
+    if (vpn.state === "off") trySelect(node.id);
+  } else {
+    if (!/^https?:\/\//i.test(val)){ err.textContent = "Нужен https:// URL подписки"; return; }
+    let host = val.replace(/^https?:\/\//i, "").split("/")[0];
+    const added = [];
+    for (let i = 1; i <= 3; i++){
+      const node = {
+        id: "n" + (nextId++),
+        n: `${host} · N${i}`,
+        h: `${host}:443`,
+        p: i % 2 ? "VLESS" : "HY2",
+        ms: 35 + Math.floor(Math.random()*150)
+      };
+      profiles.push(node);
+      added.push(node);
+    }
+    save();
+    renderList();
+    closeModal();
+    $("#impInput").value = "";
+    toast(`Из подписки загружено узлов: ${added.length}`);
+    if (vpn.state === "off") trySelect(added[0].id);
+  }
+});
+$("#impInput").addEventListener("keydown", e => { if (e.key === "Enter") $("#impGo").click(); });
+
+function renderChips(){
+  const box = $("#geoChips");
+  box.innerHTML = "";
+  settings.geo.forEach(rule => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.dataset.a = rule.a;
+    chip.title = "Клик — сменить действие";
+    const b = document.createElement("b");
+    b.textContent = rule.cc.toUpperCase();
+    chip.appendChild(b);
+    chip.appendChild(document.createTextNode(" " + rule.a));
+    chip.addEventListener("click", () => {
+      rule.a = { proxy:"direct", direct:"block", block:"proxy" }[rule.a];
+      chip.dataset.a = rule.a;
+      chip.childNodes[1].textContent = " " + rule.a;
+      save();
+    });
+    box.appendChild(chip);
+  });
+  const add = document.createElement("span");
+  add.className = "chip";
+  add.textContent = "+ правило GeoIP";
+  add.addEventListener("click", openChipEditor);
+  box.appendChild(add);
+}
+function openChipEditor(addEl){
+  const ed = document.createElement("span");
+  ed.className = "chip chip-editor";
+  ed.innerHTML = '<input maxlength="2" placeholder="RU" aria-label="Код страны"><b data-a="proxy">proxy</b><button class="cc-ok" aria-label="Добавить"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg></button>';
+  addEl.replaceWith(ed);
+  const input = ed.querySelector("input");
+  const actionB = ed.querySelector("b");
+  actionB.addEventListener("click", () => {
+    const next = { proxy:"direct", direct:"block", block:"proxy" }[actionB.dataset.a];
+    actionB.dataset.a = next;
+    actionB.textContent = next;
+  });
+  const commit = () => {
+    const cc = input.value.trim().toLowerCase();
+    if (!/^[a-z]{2}$/.test(cc)){ shake(ed); input.focus(); return; }
+    if (settings.geo.some(g => g.cc === cc)){ shake(ed); input.focus(); return; }
+    settings.geo.push({ cc, a:actionB.dataset.a });
+    save();
+    renderChips();
+    toast(`Правило ${cc.toUpperCase()} → ${actionB.dataset.a}`);
+  };
+  ed.querySelector(".cc-ok").addEventListener("click", commit);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") commit();
+    if (e.key === "Escape") renderChips();
+  });
+  setTimeout(() => input.focus(), 30);
+}
+
+document.addEventListener("click", e => {
+  const sw = e.target.closest(".switch[data-set]");
+  if (sw){
+    const on = sw.getAttribute("aria-checked") !== "true";
+    sw.setAttribute("aria-checked", on);
+    const key = sw.dataset.set;
+    settings[key] = on;
+    if (key === "logs"){ logsEnabled = on; syncLogGate(); if (on) log("info","Стриминг логов включён"); }
+    if (key === "geoEnabled"){ renderChips(); }
+    save();
+    return;
+  }
+  const segBtn = e.target.closest(".seg button");
+  if (segBtn && segBtn.parentElement.id !== "sortSeg" && segBtn.parentElement.id !== "logSeg"){
+    segBtn.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === segBtn));
+    if (segBtn.parentElement.id === "modeSeg"){
+      settings.mode = segBtn.dataset.m;
+      updateHint(vpn.state === "on" ? "on" : "off");
+      save();
+    }
+  }
+});
+
+$("#logSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  $$("#logSeg button").forEach(x => x.classList.toggle("on", x === b));
+  const lv = b.dataset.lv;
+  term.querySelectorAll(".tl").forEach(r => {
+    if (r.dataset.lv === "keep") return;
+    r.style.display = lv === "all" || r.dataset.lv === lv ? "" : "none";
+  });
+});
+$("#clearLogs").addEventListener("click", () => {
+  term.querySelectorAll(".tl:not(.caret-row)").forEach(r => r.remove());
+  toast("Журнал очищен");
+});
+
+const DOMAIN_RE = /^(\*\.)?[a-z0-9*.-]+$/;
+function renderTags(kind){
+  const box = kind === "domains" ? $("#domainEditor") : $("#appEditor");
+  const list = kind === "domains" ? settings.domains : settings.apps;
+  if (!Array.isArray(list)) return;
+  box.innerHTML = "";
+  list.forEach((val, i) => {
+    const chip = document.createElement("span");
+    chip.className = "tagchip";
+    const t = document.createElement("span");
+    t.textContent = val;
+    const x = document.createElement("button");
+    x.className = "tag-x";
+    x.setAttribute("aria-label", "Удалить " + val);
+    x.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    x.addEventListener("click", () => {
+      list.splice(i, 1);
+      save();
+      renderTags(kind);
+      updateHint(vpn.state === "on" ? "on" : "off");
+    });
+    chip.append(t, x);
+    box.appendChild(chip);
+  });
+  const inp = document.createElement("input");
+  inp.placeholder = kind === "domains" ? "example.com или *.cdn.net" : "chrome.exe";
+  inp.spellcheck = false;
+  const commit = () => {
+    let v = inp.value.trim().toLowerCase();
+    if (!v) return;
+    if (kind === "domains"){
+      v = v.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      if (!DOMAIN_RE.test(v)){ shake(box); inp.value = ""; return; }
+    } else {
+      v = v.replace(/[^a-z0-9._-]/g, "");
+      if (!v){ inp.value = ""; return; }
+      if (!/\.[a-z0-9]+$/.test(v)) v += ".exe";
+    }
+    if (list.includes(v)){ shake(box); inp.value = ""; return; }
+    if (list.length >= 40){ toast("Максимум 40 записей в списке"); inp.value = ""; return; }
+    list.push(v);
+    save();
+    renderTags(kind);
+    updateHint(vpn.state === "on" ? "on" : "off");
+  };
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === ","){ e.preventDefault(); commit(); }
+    if (e.key === "Backspace" && !inp.value && list.length){
+      list.pop();
+      save();
+      renderTags(kind);
+      updateHint(vpn.state === "on" ? "on" : "off");
+    }
+  });
+  inp.addEventListener("blur", () => { if (inp.value.trim()) commit(); });
+  box.appendChild(inp);
+}
+document.addEventListener("click", e => {
+  const ed = e.target.closest(".tageditor");
+  if (ed){ const i = ed.querySelector("input"); if (i && e.target !== i) i.focus(); }
+});
+
+(function initFromSettings(){
+  $$(".switch[data-set]").forEach(sw => sw.setAttribute("aria-checked", String(settings[sw.dataset.set])));
+  $$("#modeSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === settings.mode));
+  logsEnabled = settings.logs;
+  renderChips();
+})();
+
+renderChips();
+renderTags("domains");
+renderTags("apps");
+syncCard();
+setVPN("off");
+renderList();
+log("info", "Ядро инициализировано");
+log("info", "Ожидание команды подключения");
+
+/* --- Per-node edit modal --- */
+let editingId = null;
+function openEditModal(id){
+  const p = profiles.find(x => x.id === id);
+  if (!p) return;
+  editingId = id;
+  $("#editDnsSeg").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.dns === (p.dns || "https")));
+  $("#editInsecure").setAttribute("aria-checked", String(!!p.insecure));
+  $("#editIpv6").setAttribute("aria-checked", String(!!p.ipv6));
+  $("#editOverlay").classList.add("open");
+}
+function closeEditModal(){ $("#editOverlay").classList.remove("open"); editingId = null; }
+$("#editModalClose").addEventListener("click", closeEditModal);
+$("#editCancel").addEventListener("click", closeEditModal);
+$("#editOverlay").addEventListener("click", e => { if (e.target.id === "editOverlay") closeEditModal(); });
+$("#editDnsSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  $("#editDnsSeg").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+});
+$("#editSave").addEventListener("click", () => {
+  if (!editingId) return;
+  const p = profiles.find(x => x.id === editingId);
+  if (!p) return;
+  p.dns = $("#editDnsSeg .on").dataset.dns || "https";
+  p.insecure = $("#editInsecure").getAttribute("aria-checked") === "true";
+  p.ipv6 = $("#editIpv6").getAttribute("aria-checked") === "true";
+  save();
+  closeEditModal();
+  toast("Настройки узла сохранены");
+  if (selectedId === editingId) syncCard();
+});
+// Toggle switches inside edit modal
+document.addEventListener("click", e => {
+  const sw = e.target.closest("#editInsecure, #editIpv6");
+  if (sw){
+    const on = sw.getAttribute("aria-checked") !== "true";
+    sw.setAttribute("aria-checked", String(on));
+  }
+});
+// Add edit button to profile row menu
+const origRenderList = renderList;
+renderList = function(){
+  origRenderList();
+  $$("#plist .prow").forEach(row => {
+    const id = row.dataset.id;
+    const menu = row.querySelector(".menu");
+    if (menu && !menu.querySelector('[data-act="edit"]')){
+      const editBtn = document.createElement("button");
+      editBtn.dataset.act = "edit";
+      editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Настройки узла';
+      menu.insertBefore(editBtn, menu.querySelector('[data-act="copy"]'));
+    }
+  });
+};
+// Handle edit action in plist menu
+const origPlistClick = $("#plist").onclick;
+$("#plist").addEventListener("click", e => {
+  const mb = e.target.closest('.menu button[data-act="edit"]');
+  if (mb){
+    e.stopPropagation();
+    const id = mb.closest(".menu").dataset.id;
+    closeMenus();
+    openEditModal(id);
+  }
+}, true);
+
+/* --- GeoIP toggle --- */
+function renderChipsVisibility(){
+  const box = $("#geoChips");
+  if (box) box.style.display = settings.geoEnabled ? "" : "none";
+}
+const origRenderChips = renderChips;
+renderChips = function(){
+  origRenderChips();
+  renderChipsVisibility();
+};
+
+/* --- Quick-add from clipboard --- */
+$("#quickAddBtn").addEventListener("click", async () => {
+  let text = "";
+  try { text = await navigator.clipboard.readText(); } catch(e){ toast("Буфер недоступен"); return; }
+  text = (text || "").trim();
+  if (!text){ toast("Буфер пуст"); return; }
+  if (/^(https?|vless|vmess|trojan|ss|hy2|hysteria2|wireguard|warp):\/\//i.test(text)){
+    const node = parseNodeLink(text);
+    if (node){
+      profiles.push(node);
+      save(); renderList();
+      toast(`Импортировано: ${node.n}`);
+      if (vpn.state === "off") trySelect(node.id);
+    } else { toast("Не распознано как ссылка"); }
+  } else {
+    $("#impInput").value = text;
+    openModal();
+    toast("Вставлено в поле — проверьте");
+  }
+});
+
+/* --- Wizard --- */
+let wzStep = 1;
+function renderWizard(){
+  if (settings.wizardDone) { $("#wizardOverlay").hidden = true; return; }
+  $("#wizardOverlay").hidden = false;
+  const dots = $("#wzDots");
+  dots.innerHTML = [1,2,3].map(i => `<div style="width:${i===wzStep?20:6}px;height:6px;border-radius:999px;background:${i===wzStep?"var(--accent)":"var(--surface3)"};transition:all .3s"></div>`).join("");
+  const b = $("#wzBody");
+  if (wzStep === 1) b.innerHTML = `<h1 style="font-family:var(--f-display);font-size:28px;margin-bottom:12px">Добро пожаловать в Pulsar VPN</h1><p style="color:var(--muted);margin-bottom:20px">Приватный туннельный клиент. Настройка — меньше минуты.</p><button class="btn-accent" id="wzNext" style="margin:0 auto;height:44px">Начать</button>`;
+  else if (wzStep === 2) b.innerHTML = `<h1 style="font-family:var(--f-display);font-size:22px;margin-bottom:12px">Первая подписка</h1><p style="color:var(--muted);margin-bottom:16px">Вставьте ссылку VLESS, Trojan или подписки.</p><div class="field"><input id="wzInput" placeholder="https://… или vless://…" style="height:44px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-input);padding:0 13px;font:400 13px var(--f-mono);color:var(--text)"></div><div style="display:flex;gap:10px;margin-top:12px"><button class="btn-ghost" id="wzSkip" style="flex:1;height:40px">Пропустить</button><button class="btn-accent" id="wzImport" style="flex:1;height:40px">Add</button></div>`;
+  else b.innerHTML = `<div style="width:56px;height:56px;border-radius:50%;background:var(--good-soft);color:var(--good);display:grid;place-items:center;margin:0 auto 16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg></div><h1 style="font-family:var(--f-display);font-size:24px;margin-bottom:8px">Готово</h1><p style="color:var(--muted);margin-bottom:20px">Pulsar VPN готов к подключению.</p><button class="btn-accent" id="wzDone" style="margin:0 auto;height:44px">К подключению</button>`;
+  $("#wzNext")?.addEventListener("click", () => { wzStep = 2; renderWizard(); });
+  $("#wzSkip")?.addEventListener("click", () => { wzStep = 3; renderWizard(); });
+  $("#wzDone")?.addEventListener("click", () => { settings.wizardDone = true; save(); renderWizard(); });
+  $("#wzImport")?.addEventListener("click", async () => {
+    const val = ($("#wzInput")?.value || "").trim();
+    if (!val) return;
+    if (/^https?:\/\//i.test(val)){
+      // simulate subscription import
+      let host = val.replace(/^https?:\/\//i, "").split("/")[0];
+      const added = [];
+      for (let i = 1; i <= 3; i++){
+        const node = { id:"n"+(nextId++), n:`${host} · N${i}`, h:`${host}:443`, p:i%2?"VLESS":"HY2", ms:35+Math.floor(Math.random()*150), dns:"https", insecure:false, ipv6:false };
+        profiles.push(node); added.push(node);
+      }
+      save(); renderList();
+      toast(`Из подписки загружено: ${added.length}`);
+      wzStep = 3; renderWizard();
+    } else {
+      const node = parseNodeLink(val);
+      if (node){ profiles.push(node); save(); renderList(); wzStep = 3; renderWizard(); }
+    }
+  });
+}
+setTimeout(renderWizard, 100);
+
+/* --- Sub-strip dynamic update --- */
+function updateSubStrip(){
+  const count = profiles.length;
+  const nameEl = $("#subName"), expireEl = $("#subExpire"), countEl = $("#subCount");
+  if (nameEl) nameEl.textContent = count ? `${plural(count, "узел", "узла", "узлов")} добавлено` : "Нет узлов";
+  if (expireEl) expireEl.textContent = "Вручную добавленные профили";
+  if (countEl) countEl.textContent = `${count} ${plural(count, "узел", "узла", "узлов")}`;
+}
+updateSubStrip();
+
+const cv = $("#pulsar"), ctx = cv.getContext("2d");
+const TAU = Math.PI * 2;
+const STEP = 1000 / 30;
+const pts = [];
+(function(){
+  const N = 240, ga = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++){
+    const y = 1 - (i / (N - 1)) * 2;
+    const r = Math.sqrt(1 - y*y);
+    const th = ga * i;
+    pts.push([Math.cos(th)*r, y, Math.sin(th)*r]);
+  }
+})();
+
+const sphere = (() => {
+  let running = false, raf = 0, last = 0, acc = 0;
+  let mode = "off", alpha = 0.3, targetAlpha = 0.3;
+  let rot = 0, ringAcc = 0, rings = [];
+  let beamI = 0, targetBeam = 0;
+  let speedF = 0, targetSpeedF = 0;
+
+  function cssSize(){
+    const rect = cv.getBoundingClientRect();
+    return { w: rect.width, h: rect.height };
+  }
+  function fit(){
+    const rect = cv.getBoundingClientRect();
+    const dpr = Math.min(devicePixelRatio || 1, 1.5);
+    cv.width = Math.max(1, Math.round(rect.width * dpr));
+    cv.height = Math.max(1, Math.round(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!running) draw(performance.now());
+  }
+
+  function drawBeams(cx, cy, R, now){
+    if (beamI < 0.02) return;
+    const col = mode === "on" ? "61,220,151" : "240,179,92";
+    const L = R * 1.6;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(now * 0.00045 + Math.sin(now * 0.001) * 0.06);
+    let g = ctx.createLinearGradient(-L, 0, L, 0);
+    g.addColorStop(0, `rgba(${col},0)`);
+    g.addColorStop(0.5, `rgba(${col},${0.55 * beamI * alpha})`);
+    g.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-L, -1.6, L*2, 3.2);
+    g = ctx.createLinearGradient(-L, 0, L, 0);
+    g.addColorStop(0, `rgba(${col},0)`);
+    g.addColorStop(0.5, `rgba(${col},${0.14 * beamI * alpha})`);
+    g.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-L, -5, L*2, 10);
+    ctx.rotate(Math.PI / 2.6);
+    g = ctx.createLinearGradient(-L, 0, L, 0);
+    g.addColorStop(0, `rgba(${col},0)`);
+    g.addColorStop(0.5, `rgba(${col},${0.22 * beamI * alpha})`);
+    g.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-L, -1.2, L*2, 2.4);
+    ctx.restore();
+  }
+
+  function draw(now){
+    const dpr = Math.min(devicePixelRatio || 1, 1.5);
+    const w = cv.width / dpr, h = cv.height / dpr;
+    if (w < 2) return;
+    ctx.clearRect(0, 0, w, h);
+    const cx = w/2, cy = h/2, R = Math.min(w,h) * 0.37;
+
+    for (const r of rings){
+      const rad = R * (1 + r.k * 1.05);
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, TAU);
+      ctx.strokeStyle = "#3ddc97";
+      ctx.globalAlpha = (1 - r.k) * 0.22 * alpha;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    const pulse = 1 + Math.sin(now * 0.004) * (0.012 + speedF * 0.03);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.9 * pulse);
+    g.addColorStop(0, `rgba(139,124,255,${0.30 * alpha})`);
+    g.addColorStop(0.5, `rgba(139,124,255,${0.09 * alpha})`);
+    g.addColorStop(1, "rgba(139,124,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    drawBeams(cx, cy, R, now);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.09 * pulse, 0, TAU);
+    ctx.fillStyle = `rgba(236,238,246,${0.85 * alpha})`;
+    ctx.fill();
+
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    const ct = Math.cos(0.42), st = Math.sin(0.42);
+    for (const p of pts){
+      const x1 = p[0]*cs + p[2]*sn, z1 = -p[0]*sn + p[2]*cs;
+      const y2 = p[1]*ct - z1*st, z2 = p[1]*st + z1*ct;
+      const depth = (z2 + 1) / 2;
+      const s = (0.7 + depth * 1.6) * (1 + speedF * 0.25);
+      ctx.globalAlpha = (0.10 + 0.55 * depth) * alpha;
+      ctx.fillStyle = depth > 0.74 ? "#d6dbff" : "#8b7cff";
+      ctx.fillRect(cx + x1*R*pulse - s/2, cy + y2*R*pulse - s/2, s, s);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function noteIdle(){ $("#orbitNote").textContent = "CANVAS2D · 30 FPS CAP · IDLE: LOOP STOPPED"; }
+
+  function frame(now){
+    if (!running) return;
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    const dt = Math.min(now - last, 120);
+    last = now;
+    acc += dt;
+    if (acc < STEP) return;
+    acc %= STEP;
+
+    alpha += (targetAlpha - alpha) * 0.09;
+    beamI += (targetBeam - beamI) * 0.08;
+    speedF += (targetSpeedF - speedF) * 0.05;
+    rot += (mode === "on" ? 0.0042 + speedF * 0.007 : 0.0019);
+
+    if (mode === "on"){
+      ringAcc += STEP;
+      const period = Math.max(750, 1500 - speedF * 700);
+      if (ringAcc > period){ ringAcc = 0; rings.push({ k:0 }); }
+    }
+    for (const r of rings) r.k += STEP / 2000;
+    rings = rings.filter(r => r.k < 1);
+
+    if (mode === "off" && Math.abs(alpha - targetAlpha) < 0.004 && Math.abs(beamI - targetBeam) < 0.01 && rings.length === 0){
+      running = false;
+      cancelAnimationFrame(raf);
+      alpha = targetAlpha; beamI = targetBeam;
+      draw(now);
+      noteIdle();
+      return;
+    }
+    draw(now);
+  }
+
+  function start(){
+    if (REDUCED){
+      alpha = targetAlpha; beamI = targetBeam; speedF = targetSpeedF;
+      draw(performance.now());
+      return;
+    }
+    if (running) return;
+    running = true;
+    last = performance.now();
+    acc = STEP;
+    raf = requestAnimationFrame(frame);
+  }
+
+  window.addEventListener("resize", fit);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden){
+      if (running){ cancelAnimationFrame(raf); running = false; }
+    } else if (mode !== "off" || alpha > 0.31 || beamI > 0.02) start();
+  });
+
+  fit();
+  return {
+    set(m){
+      mode = m;
+      targetAlpha = m === "on" ? 1 : m === "connecting" ? 0.62 : 0.3;
+      targetBeam = m === "on" ? 0.6 : m === "connecting" ? 0.3 : 0;
+      if (m === "connecting") $("#orbitNote").textContent = "CANVAS2D · 30 FPS CAP · HANDSHAKE…";
+      if (m === "on") $("#orbitNote").textContent = "CANVAS2D · 30 FPS CAP · RENDERING";
+      if (m === "off" && !running) noteIdle();
+      start();
+    },
+    setSpeed(v){ targetSpeedF = Math.min(1, (v || 0) / 60); },
+    redraw: fit
+  };
+})();
+sphere.set("off");
+</script>
+</body>
+</html>

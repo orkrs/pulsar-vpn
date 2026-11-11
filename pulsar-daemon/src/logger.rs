@@ -1,15 +1,15 @@
 use std::path::PathBuf;
+use tracing_appender::{non_blocking, rolling};
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::{
+    EnvFilter, Layer, Registry,
     fmt::{self, time::UtcTime},
     layer::SubscriberExt,
     util::SubscriberInitExt,
-    Layer, EnvFilter, Registry,
 };
-use tracing_appender::{non_blocking, rolling};
-use tracing_subscriber::fmt::format::FmtSpan;
 
 /// Инициализация логирования для демона
-/// 
+///
 /// Настраивает:
 /// - Ротацию логов по дням в %LOCALAPPDATA%\PulsarVPN\logs\
 /// - Формат: timestamp (мс), уровень, модуль, файл:строка, thread, сообщение
@@ -21,7 +21,9 @@ pub fn init_logger() -> Result<(), Box<dyn std::error::Error>> {
 
     // Ротация по дням: файлы вида pulsar-daemon-2025-02-22.log
     let file_appender = rolling::daily(&log_dir, "pulsar-daemon");
-    let (non_blocking_appender, _guard) = non_blocking(file_appender);
+    let (non_blocking_appender, guard) = non_blocking(file_appender);
+    // The guard owns the logging worker; dropping it here silently stops file logs.
+    Box::leak(Box::new(guard));
 
     // Формат: timestamp (мс), уровень, модуль, файл:строка, thread, сообщение
     let file_layer = fmt::Layer::default()
@@ -37,8 +39,8 @@ pub fn init_logger() -> Result<(), Box<dyn std::error::Error>> {
 
     // Консольный вывод (для отладки)
     let console_layer = fmt::Layer::default()
-        .with_writer(std::io::stderr)
-        .with_ansi(true)
+        .with_writer(std::io::stdout)
+        .with_ansi(false)
         .with_timer(UtcTime::rfc_3339())
         .with_target(true)
         .with_file(true)
@@ -47,8 +49,7 @@ pub fn init_logger() -> Result<(), Box<dyn std::error::Error>> {
         .boxed();
 
     // Уровень логирования из переменной окружения или по умолчанию INFO
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     Registry::default()
         .with(filter)
@@ -67,8 +68,7 @@ pub fn init_logger() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn get_log_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let local_app_data = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| ".".to_string());
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
     Ok(PathBuf::from(local_app_data).join("PulsarVPN").join("logs"))
 }
 
@@ -89,7 +89,11 @@ async fn cleanup_old_logs(log_dir: &PathBuf) {
                     if let Ok(modified_secs) = modified.duration_since(UNIX_EPOCH) {
                         if modified_secs.as_secs() < thirty_days_ago {
                             if let Err(e) = std::fs::remove_file(entry.path()) {
-                                tracing::warn!("Failed to delete old log file {:?}: {}", entry.path(), e);
+                                tracing::warn!(
+                                    "Failed to delete old log file {:?}: {}",
+                                    entry.path(),
+                                    e
+                                );
                             } else {
                                 tracing::debug!("Deleted old log file: {:?}", entry.path());
                             }

@@ -62,11 +62,26 @@ pub struct ToggleOutcome {
 impl ToggleOutcome {
     pub fn from_state(s: &VpnState) -> Self {
         match s {
-            VpnState::Disconnected => Self { state: "Disconnected".into(), message: "Closed".into() },
-            VpnState::Connecting => Self { state: "Connecting".into(), message: "OK".into() },
-            VpnState::Connected => Self { state: "Connected".into(), message: "OK".into() },
-            VpnState::Disconnecting => Self { state: "Disconnecting".into(), message: "OK".into() },
-            VpnState::Error(e) => Self { state: "Error".into(), message: e.clone() },
+            VpnState::Disconnected => Self {
+                state: "Disconnected".into(),
+                message: "Closed".into(),
+            },
+            VpnState::Connecting => Self {
+                state: "Connecting".into(),
+                message: "OK".into(),
+            },
+            VpnState::Connected => Self {
+                state: "Connected".into(),
+                message: "OK".into(),
+            },
+            VpnState::Disconnecting => Self {
+                state: "Disconnecting".into(),
+                message: "OK".into(),
+            },
+            VpnState::Error(e) => Self {
+                state: "Error".into(),
+                message: e.clone(),
+            },
         }
     }
 }
@@ -103,18 +118,20 @@ impl Backend {
     /// - На Windows нужен `resource_dir()` (где лежит `pulsar-daemon.exe`)
     ///   и `AppHandle` (для эмита `vpn_log`).
     /// - На Android — параметр игнорируется.
-    pub fn for_tauri(app: &tauri::App, logs_streaming: Arc<AtomicBool>) -> Result<Self, String> {
+    pub fn for_tauri(_app: &tauri::App, logs_streaming: Arc<AtomicBool>) -> Result<Self, String> {
         #[cfg(target_os = "windows")]
         {
             tracing::info!("backend: Windows gRPC mode");
-            windows::WindowsBackend::attach_app(app, logs_streaming)
-                .map(|b| Self { inner: Arc::new(BackendKind::Windows(b)) })
+            windows::WindowsBackend::attach_app(_app, logs_streaming).map(|b| Self {
+                inner: Arc::new(BackendKind::Windows(b)),
+            })
         }
         #[cfg(target_os = "android")]
         {
             tracing::info!("backend: Android in-process mode");
-            android::AndroidBackend::new()
-                .map(|b| Self { inner: Arc::new(BackendKind::Android(b)) })
+            android::AndroidBackend::new().map(|b| Self {
+                inner: Arc::new(BackendKind::Android(b)),
+            })
         }
     }
 
@@ -134,15 +151,26 @@ impl Backend {
     /// Подключиться или отключиться. Возвращает `(state, message)`,
     /// который UI может показать в нотификации.
     pub async fn toggle(&self, req: ToggleRequest) -> Result<ToggleOutcome, String> {
-        let connect_req = ConnectRequest { profile_link: req.profile_link, routing: req.routing };
+        let connect_req = ConnectRequest {
+            profile_link: req.profile_link,
+            routing: req.routing,
+        };
         let res = match &*self.inner {
             #[cfg(target_os = "windows")]
             BackendKind::Windows(b) => {
-                if req.connect { b.connect(connect_req).await } else { b.disconnect().await }
+                if req.connect {
+                    b.connect(connect_req).await
+                } else {
+                    b.disconnect().await
+                }
             }
             #[cfg(target_os = "android")]
             BackendKind::Android(b) => {
-                if req.connect { b.connect(connect_req).await } else { b.disconnect().await }
+                if req.connect {
+                    b.connect(connect_req).await
+                } else {
+                    b.disconnect().await
+                }
             }
         };
         res.map(|s| ToggleOutcome::from_state(&s))

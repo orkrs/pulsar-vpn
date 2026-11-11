@@ -1,0 +1,727 @@
+<script setup lang="ts">
+import {ref, computed, onMounted, watch} from 'vue'
+import {invoke} from '@tauri-apps/api/core'
+import {listen} from '@tauri-apps/api/event'
+import {load} from '@tauri-apps/plugin-store'
+import {enable, disable, isEnabled} from '@tauri-apps/plugin-autostart'
+import {
+  ShieldCheck, Globe2, Settings, ArrowDownToLine, ArrowUpFromLine,
+  Lock, Zap, Server, Plus, Link, Trash2, CheckCircle2,
+  Power, ShieldAlert, Search, Loader2, X, Monitor, Globe,
+  Terminal, Trash, MonitorCheck, RefreshCcw,
+  ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronRight,
+  Sparkles, ArrowRight, Check, Settings2, ClipboardPaste
+} from 'lucide-vue-next'
+import PulsarSphere from './components/PulsarSphere.vue'
+import BottomNav from './components/BottomNav.vue'
+import {logger} from './utils/logger'
+
+// --- ИНТЕРФЕЙСЫ ---
+interface Subscription {
+  id: string
+  url: string
+  name: string
+  expire?: number
+  lastUpdated: number
+  nodes: Profile[]
+}
+
+interface Profile {
+  id: number
+  name: string
+  protocol: string
+  ping: number // 0 = Pinging, -1 = Timeout, >0 = ms
+  active: boolean
+  rawLink: string
+  flag: string
+  country: string
+  subscriptionId?: string
+  dnsType?: 'https' | 'http' | 'udp'
+  allowInsecure?: boolean // ДОБАВЛЕНО
+  /** Включить IPv6 в TUN/DNS/dial; по умолчанию выкл. (только IPv4). */
+  useIpv6?: boolean
+}
+
+interface RoutingConfig {
+  mode: 'global' | 'bypass' | 'proxy'
+  domains: string[]
+  apps: string[]
+}
+
+// --- СОСТОЯНИЕ ---
+const isConnected = ref(false)
+const isImporting = ref(false)
+const isPinging = ref(false)
+
+const currentMetrics = ref({download: 0, upload: 0})
+
+const activeTab = ref<'dashboard' | 'nodes' | 'settings'>('dashboard')
+const showLogs = ref(false)
+const toast = ref<string | null>(null)
+let toastTimer: number | null = null
+const showToast = (msg: string) => {
+  toast.value = msg
+  if (toastTimer) window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => { toast.value = null }, 2200)
+}
+
+// WIZARD STATE
+const showWizard = ref(false)
+const wizardStep = ref(1)
+
+let store: Awaited<ReturnType<typeof load>> | null = null
+
+const importUrl = ref('')
+const searchQuery = ref('')
+
+// СОРТИРОВКА
+const sortBy = ref<'name' | 'ping'>('name')
+const sortOrder = ref<'asc' | 'desc'>('asc')
+
+const subscriptions = ref<Subscription[]>([])
+const standaloneProfiles = ref<Profile[]>([])
+const expandedSubs = ref<Set<string>>(new Set())
+
+// СОСТОЯНИЕ МОДАЛЬНОГО ОКНА НАСТРОЕК ПРОФИЛЯ
+const editModalOpen = ref(false)
+const editingProfileId = ref<number | null>(null)
+const editedDnsType = ref<'https' | 'http' | 'udp'>('https')
+const editedAllowInsecure = ref(false) // ДОБАВЛЕНО
+const editedUseIpv6 = ref(false)
+
+const logs = ref<string[]>([
+  '[SYSTEM] Pulsar Engine Initialized',
+  '[SYSTEM] Waiting for connection protocol...'
+])
+const logsContainer = ref<HTMLElement | null>(null)
+
+// --- НОВЫЙ СПИСОК СТРАН ДЛЯ GEOIP ---
+const popularCountries =[
+  { code: 'RU', name: 'Russia', flag: '🇷🇺' },
+  { code: 'US', name: 'United States', flag: '🇺🇸' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' },
+  { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+  { code: 'CN', name: 'China', flag: '🇨🇳' },
+  { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+  { code: 'IN', name: 'India', flag: '🇮🇳' },
+  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+  { code: 'SE', name: 'Sweden', flag: '🇸🇪' },
+  { code: 'NO', name: 'Norway', flag: '🇳🇴' },
+  { code: 'FI', name: 'Finland', flag: '🇫🇮' },
+  { code: 'DK', name: 'Denmark', flag: '🇩🇰' },
+  { code: 'PL', name: 'Poland', flag: '🇵🇱' },
+  { code: 'UA', name: 'Ukraine', flag: '🇺🇦' },
+];
+
+const settings = ref({
+  autoStart: false,
+  minimizeToTray: true,
+  setupWizardCompleted: false,
+  enableGeoip: false,
+  geoipRules: {} as Record<string, 'proxy'|'direct'|'block'>
+})
+
+// --- ПЛАТФОРМЕННАЯ ИНФО ---
+// get_platform_info (Tauri-команда) сообщает UI, какие ОС-специфичные
+// фичи активны: apps-list работает только на Windows/Linux/macOS
+// (на Android — только когда будет реализован VpnService.Builder).
+interface PlatformInfo {
+  os: string
+  apps_label: string
+  apps_placeholder: string
+  apps_append_suffix: boolean
+  apps_supported: boolean
+}
+const platformInfo = ref<PlatformInfo>({
+  os: 'unknown',
+  apps_label: 'Applications',
+  apps_placeholder: 'process name',
+  apps_append_suffix: false,
+  apps_supported: false
+})
+
+const routing = ref<RoutingConfig>({
+  mode: 'bypass',
+  domains: [],
+  apps:[]
+})
+
+const newDomainInput = ref('')
+const newAppInput = ref('')
+
+// --- COMPUTED ---
+const profiles = computed(() => {
+  const subsNodes = subscriptions.value.flatMap(s => s.nodes)
+  return[...subsNodes, ...standaloneProfiles.value]
+})
+
+const downloadSpeed = computed(() => ((currentMetrics.value.download * 8) / (1024 * 1024)).toFixed(1))
+const uploadSpeed = computed(() => ((currentMetrics.value.upload * 8) / (1024 * 1024)).toFixed(1))
+
+const activeProfile = computed(() =>
+        profiles.value.find(p => p.active) || {
+          name: 'No Node Selected',
+          protocol: 'None',
+          flag: '🌍',
+          dnsType: 'https',
+          allowInsecure: false,
+          useIpv6: false
+        }
+)
+
+// --- ЛОГИКА ФИЛЬТРАЦИИ И СОРТИРОВКИ ---
+const getFilteredAndSortedNodes = (nodes: Profile[]) => {
+  if (!nodes) return[]
+  let result = nodes
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase()
+    result = nodes.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.protocol.toLowerCase().includes(q) ||
+        p.country.toLowerCase().includes(q)
+    )
+  }
+  return result.sort((a, b) => {
+    let modifier = sortOrder.value === 'asc' ? 1 : -1
+    if (sortBy.value === 'name') {
+      return a.name.localeCompare(b.name) * modifier
+    } else if (sortBy.value === 'ping') {
+      const getPingWeight = (p: number) => {
+        if (p > 0) return p
+        if (p === 0) return 999998
+        if (p === -1) return 999999
+        return 999999
+      }
+      return (getPingWeight(a.ping) - getPingWeight(b.ping)) * modifier
+    }
+    return 0
+  })
+}
+
+const toggleSort = (field: 'name' | 'ping') => {
+  if (sortBy.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortBy.value = field
+    sortOrder.value = 'asc'
+  }
+}
+
+watch(activeTab, () => {
+  searchQuery.value = ''
+})
+
+// --- АДАПТИВНОСТЬ ---
+// На мобильных (<768px) прячем сайдбар, показываем BottomNav, выключаем 3D-сферу
+// для экономии батареи и CPU.
+const isMobile = ref(false)
+let mqMobile: MediaQueryList | null = null
+function applyMq(e: MediaQueryListEvent | MediaQueryList) {
+  isMobile.value = e.matches
+}
+
+// --- INIT ---
+onMounted(async () => {
+  logger.info('App', 'Vue app mounting');
+
+  // Регистрируем слушатель media-query для адаптивности.
+  mqMobile = window.matchMedia('(max-width: 767px)')
+  applyMq(mqMobile)
+  mqMobile.addEventListener('change', applyMq)
+
+  // Платформенная информация (apps placeholder, суффиксы и т.д.)
+  try {
+    const info = await invoke<PlatformInfo>('get_platform_info')
+    platformInfo.value = info
+    const vpnState = await invoke<string>('get_vpn_state')
+    isConnected.value = vpnState === 'Connected' || vpnState === 'Connecting'
+    logger.info('App', `Platform: ${info.os}, apps_supported=${info.apps_supported}`)
+  } catch (e) {
+    logger.warn('App', 'get_platform_info failed, using defaults', e)
+  }
+
+  try {
+    store = await load('store.json', {autoSave: false, defaults: {}})
+
+    const savedSubs = await store.get('subscriptions')
+    if (savedSubs) subscriptions.value = savedSubs as Subscription[]
+
+    const savedStandalone = await store.get('standaloneProfiles')
+    if (savedStandalone) standaloneProfiles.value = savedStandalone as Profile[]
+
+    const oldProfiles = await store.get('profiles')
+    if (oldProfiles && (!savedStandalone || (savedStandalone as Profile[]).length === 0)) {
+      standaloneProfiles.value = oldProfiles as Profile[]
+      await store.delete('profiles')
+    }
+
+    // МИГРАЦИЯ ДАННЫХ ДЛЯ DNS TYPE И ALLOW INSECURE
+    standaloneProfiles.value = standaloneProfiles.value.map(p => ({
+      ...p,
+      dnsType: p.dnsType || 'https',
+      allowInsecure: p.allowInsecure ?? false, // ДОБАВЛЕНО
+      useIpv6: p.useIpv6 ?? false
+    }))
+
+    subscriptions.value.forEach(sub => {
+      sub.nodes = sub.nodes.map(p => ({
+        ...p,
+        dnsType: p.dnsType || 'https',
+        allowInsecure: p.allowInsecure ?? false, // ДОБАВЛЕНО
+        useIpv6: p.useIpv6 ?? false
+      }))
+    })
+
+    const savedRouting = await store.get('routing')
+    if (savedRouting) routing.value = savedRouting as RoutingConfig
+
+    const savedSettings = await store.get('settings')
+    if (savedSettings) {
+      settings.value = savedSettings as any
+      // Убедимся, что geoipRules существует
+      if (!settings.value.geoipRules) settings.value.geoipRules = {}
+    }
+    settings.value.autoStart = await isEnabled();
+    await invoke('set_minimize_to_tray', {enable: settings.value.minimizeToTray});
+
+    // Check Wizard Status
+    if (!settings.value.setupWizardCompleted) {
+      showWizard.value = true
+    }
+
+  } catch (e) {
+    logger.error('App', 'Store init error', e)
+  }
+
+  if (profiles.value.length > 0) refreshPings()
+
+  if ((window as any).__TAURI_INTERNALS__) {
+    try {
+      await listen<{ download: number, upload: number }>('vpn_metrics', e => {
+        currentMetrics.value = e.payload
+      })
+      await listen<string>('vpn_log', e => addLog(`[CORE] ${e.payload}`))
+
+      const maxAttempts = 60
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await invoke('start_metrics_stream')
+          break
+        } catch (_) {
+          if (attempt < maxAttempts - 1) await new Promise(r => setTimeout(r, 2000))
+        }
+      }
+    } catch (e) {
+      console.error('Failed to init streams:', e)
+    }
+  }
+})
+
+// --- LOGIC ---
+// Коалесинг записей в журнал: не дёргаем реактивность и DOM на каждую
+// строку из батча, а один раз за кадр. Сильно снижает нагрузку, когда
+// из Rust-стрима прилетает пакет в десятки строк разом.
+let pendingLogs: string[] = []
+let logFlushScheduled = false
+const flushLogs = () => {
+  logFlushScheduled = false
+  if (pendingLogs.length === 0) return
+  logs.value.push(...pendingLogs)
+  pendingLogs = []
+  if (logs.value.length > 100) logs.value.splice(0, logs.value.length - 100)
+  if (logsContainer.value) logsContainer.value.scrollTop = logsContainer.value.scrollHeight
+}
+const addLog = (msg: string) => {
+  pendingLogs.push(msg)
+  if (!logFlushScheduled) {
+    logFlushScheduled = true
+    requestAnimationFrame(flushLogs)
+  }
+}
+
+// Уведомляем Rust о том, открыта ли панель логов: пока закрыта —
+// бэкенд не шлёт "vpn_log" события в webview (см. set_logs_streaming в main.rs).
+watch(showLogs, async (open) => {
+  try { await invoke('set_logs_streaming', { enable: open }) } catch {}
+})
+onMounted(async () => {
+  // На случай если панель логов уже открыта до подключения IPC
+  try { await invoke('set_logs_streaming', { enable: showLogs.value }) } catch {}
+})
+
+const toggleAutoStart = async () => {
+  try {
+    if (settings.value.autoStart) {
+      await disable();
+      settings.value.autoStart = false;
+    } else {
+      await enable();
+      settings.value.autoStart = true;
+    }
+    await saveData();
+  } catch (e) {
+    console.error(e);
+    alert('Failed to toggle autostart: ' + e);
+  }
+}
+
+const toggleTray = async () => {
+  settings.value.minimizeToTray = !settings.value.minimizeToTray;
+  await invoke('set_minimize_to_tray', {enable: settings.value.minimizeToTray});
+  await saveData();
+}
+
+const refreshPings = async () => {
+  if (isPinging.value) return
+  isPinging.value = true
+  addLog('[SYSTEM] Started latency check...')
+
+  profiles.value.forEach(p => p.ping = 0)
+
+  const promises = profiles.value.map(async (p) => {
+    try {
+      const ms = await invoke<number>('check_ping', {link: p.rawLink})
+      p.ping = ms
+    } catch (e) {
+      p.ping = -1
+    }
+  })
+
+  await Promise.allSettled(promises)
+  await saveData()
+  isPinging.value = false
+}
+
+const toggleVpn = async () => {
+  if (profiles.value.length === 0) {
+    showToast('Add a node first')
+    activeTab.value = 'nodes'
+    return
+  }
+  const active = profiles.value.find(p => p.active)
+  if (!active || !active.rawLink) return
+
+  const targetState = !isConnected.value
+
+  try {
+    addLog(`[SYSTEM] Attempting to ${targetState ? 'connect' : 'disconnect'}...`)
+
+    const res = await invoke<string>('toggle_vpn', {
+      payload: {
+        connect: targetState,
+        link: active.rawLink,
+        routing_config: {
+          mode: routing.value.mode,
+          domains: routing.value.domains,
+          apps: routing.value.apps,
+          enable_geoip: settings.value.enableGeoip,
+          geoip_rules: settings.value.geoipRules,
+          dns_type: active.dnsType || 'https',
+          allow_insecure: active.allowInsecure ?? false, // ДОБАВЛЕНО
+          use_ipv6: active.useIpv6 ?? false
+        }
+      }
+    })
+
+    isConnected.value = res === 'Connected'
+    addLog(`[SYSTEM] ${res}`)
+  } catch (e) {
+    addLog(`[ERROR] ${e}`);
+    isConnected.value = false;
+  }
+}
+
+const saveData = async () => {
+  if (store) {
+    await store.set('subscriptions', subscriptions.value)
+    await store.set('standaloneProfiles', standaloneProfiles.value)
+    await store.set('routing', routing.value)
+    await store.set('settings', settings.value)
+    await store.save()
+  }
+}
+
+// Управление модальным окном настройки профиля
+const openEditModal = (profile: Profile) => {
+  editingProfileId.value = profile.id
+  editedDnsType.value = profile.dnsType || 'https'
+  editedAllowInsecure.value = profile.allowInsecure ?? false // ДОБАВЛЕНО
+  editedUseIpv6.value = profile.useIpv6 ?? false
+  editModalOpen.value = true
+}
+
+const saveProfileSettings = async () => {
+  if (editingProfileId.value === null) return
+
+  const updateProfile = (nodes: Profile[]) => {
+    const p = nodes.find(n => n.id === editingProfileId.value)
+    if (p) {
+      p.dnsType = editedDnsType.value
+      p.allowInsecure = editedAllowInsecure.value // ДОБАВЛЕНО
+      p.useIpv6 = editedUseIpv6.value
+    }
+  }
+
+  updateProfile(standaloneProfiles.value)
+  subscriptions.value.forEach(sub => updateProfile(sub.nodes))
+
+  await saveData()
+  editModalOpen.value = false
+  editingProfileId.value = null
+}
+
+// Wizard Logic
+const completeWizard = async () => {
+  settings.value.setupWizardCompleted = true
+  await saveData()
+  showWizard.value = false
+}
+
+const handleWizardImport = async () => {
+  await handleImport()
+  if (profiles.value.length > 0) {
+    wizardStep.value = 3
+  }
+}
+
+const addDomain = () => {
+  if (newDomainInput.value.trim()) {
+    routing.value.domains.push(newDomainInput.value.trim());
+    newDomainInput.value = '';
+    saveData()
+  }
+}
+const removeDomain = (idx: number) => {
+  routing.value.domains.splice(idx, 1);
+  saveData()
+}
+const addApp = () => {
+  if (newAppInput.value.trim()) {
+    let app = newAppInput.value.trim();
+    // На Windows принято указывать имя с .exe (например, chrome.exe).
+    // На других платформах (Linux: chrome, macOS: Google Chrome,
+    // Android: com.android.chrome) .exe не используется — добавляем
+    // суффикс только если платформа его требует.
+    if (platformInfo.value.apps_append_suffix && !app.toLowerCase().endsWith('.exe')) {
+      app += '.exe';
+    }
+    routing.value.apps.push(app);
+    newAppInput.value = '';
+    saveData()
+  }
+}
+const removeApp = (idx: number) => {
+  routing.value.apps.splice(idx, 1);
+  saveData()
+}
+
+const setActiveProfile = async (id: number) => {
+  subscriptions.value.forEach(s => s.nodes.forEach(p => p.active = (p.id === id)))
+  standaloneProfiles.value.forEach(p => p.active = (p.id === id))
+  await saveData()
+}
+
+const deleteProfile = async (id: number) => {
+  const wasActive = profiles.value.find(p => p.id === id)?.active
+  standaloneProfiles.value = standaloneProfiles.value.filter(p => p.id !== id)
+  subscriptions.value.forEach(s => {
+    s.nodes = s.nodes.filter(p => p.id !== id)
+  })
+
+  if (wasActive) {
+    if (profiles.value.length > 0) profiles.value[0].active = true
+    else isConnected.value = false
+  }
+  await saveData()
+}
+
+const deleteSubscription = async (id: string) => {
+  const sub = subscriptions.value.find(s => s.id === id)
+  if (sub && sub.nodes.some(n => n.active)) isConnected.value = false
+  subscriptions.value = subscriptions.value.filter(s => s.id !== id)
+  expandedSubs.value.delete(id)
+  await saveData()
+}
+
+const parseLocationFromName = (name: string) => {
+  const emojiRegex = /[\u{1F1E6}-\u{1F1FF}]{2}/u
+  const match = name.match(emojiRegex)
+  let country = 'Unknown'
+  if (name.includes('RU')) country = 'Russia'
+  else if (name.includes('DE')) country = 'Germany'
+  else if (name.includes('NL')) country = 'Netherlands'
+  else if (name.includes('US')) country = 'USA'
+  else if (name.includes('PL')) country = 'Poland'
+  return {flag: match ? match[0] : '🌍', country}
+}
+
+const createProfileObj = (url: string, subId?: string): Profile | null => {
+  let protocol = 'Custom', name = 'Node';
+  if (url.startsWith('vless://')) protocol = 'VLESS';
+  else if (url.startsWith('wireguard://')) protocol = 'WireGuard';
+  else if (url.startsWith('warp://')) protocol = 'WARP';
+  else if (url.startsWith('ss://')) protocol = 'Shadowsocks';
+  else if (url.startsWith('trojan://')) protocol = 'Trojan';
+  else if (url.startsWith('hysteria2://') || url.startsWith('hy2://')) protocol = 'Hysteria2';
+
+  const hashIndex = url.indexOf('#')
+  if (hashIndex !== -1) {
+    try {
+      name = decodeURIComponent(url.substring(hashIndex + 1))
+    } catch (e) {}
+  }
+  const {flag, country} = parseLocationFromName(name)
+
+  return {
+    id: Date.now() + Math.random(),
+    name,
+    protocol,
+    ping: 0,
+    active: false,
+    rawLink: url,
+    flag,
+    country,
+    subscriptionId: subId,
+    dnsType: 'https',
+    allowInsecure: false, // ДОБАВЛЕНО
+    useIpv6: false
+  }
+}
+
+const handleImport = async () => {
+  if (!importUrl.value) return
+  const input = importUrl.value.trim()
+  importUrl.value = ''
+  isImporting.value = true
+
+  try {
+    if (input.startsWith('http')) {
+      addLog(`[SYSTEM] Fetching subscription...`)
+      const res = await invoke<{nodes: string[], userinfo: string | null}>('fetch_subscription', {url: input})
+      const subId = Date.now().toString()
+      const newNodes = res.nodes.map(link => createProfileObj(link, subId)).filter(p => p !== null) as Profile[]
+
+      let expireTime = undefined
+      if (res.userinfo) {
+        const match = res.userinfo.match(/expire=(\d+)/)
+        if (match) expireTime = parseInt(match[1]) * 1000
+      }
+
+      if (profiles.value.length === 0 && newNodes.length > 0) newNodes[0].active = true
+
+      subscriptions.value.push({
+        id: subId, url: input, name: new URL(input).hostname, lastUpdated: Date.now(), expire: expireTime, nodes: newNodes
+      })
+      addLog(`[SYSTEM] Imported subscription with ${newNodes.length} nodes`)
+    } else {
+      const p = createProfileObj(input)
+      if (p) {
+        if (profiles.value.length === 0) p.active = true
+        standaloneProfiles.value.push(p)
+        addLog(`[SYSTEM] Imported standalone profile: ${p.name}`)
+      }
+    }
+    await saveData()
+    refreshPings()
+  } catch (e) {
+    addLog(`[ERROR] Import failed: ${e}`)
+  } finally {
+    isImporting.value = false
+  }
+}
+
+const refreshSubscription = async (sub: Subscription) => {
+  addLog(`[SYSTEM] Updating subscription ${sub.name}...`)
+  try {
+    const res = await invoke<{nodes: string[], userinfo: string | null}>('fetch_subscription', { url: sub.url })
+    const activeLink = profiles.value.find(p => p.active)?.rawLink
+    const newNodes = res.nodes.map(link => createProfileObj(link, sub.id)).filter(p => p !== null) as Profile[]
+
+    if (activeLink) {
+      const found = newNodes.find(n => n.rawLink === activeLink)
+      if (found) found.active = true
+    }
+
+    sub.nodes = newNodes
+    sub.lastUpdated = Date.now()
+    if (res.userinfo) {
+      const match = res.userinfo.match(/expire=(\d+)/)
+      if (match) sub.expire = parseInt(match[1]) * 1000
+    }
+
+    await saveData()
+    refreshPings()
+    addLog(`[SYSTEM] Subscription updated. Total nodes: ${newNodes.length}`)
+  } catch(e) {
+    addLog(`[ERROR] Failed to update subscription: ${e}`)
+  }
+}
+
+const toggleSubExpanded = (id: string) => {
+  if (expandedSubs.value.has(id)) expandedSubs.value.delete(id)
+  else expandedSubs.value.add(id)
+  // trigger reactivity for Set
+  expandedSubs.value = new Set(expandedSubs.value)
+}
+
+interface NodeGroup {
+  id: string
+  name: string
+  sub: Subscription | null
+  nodes: Profile[]
+}
+const nodeGroups = computed<NodeGroup[]>(() => {
+  const groups: NodeGroup[] = []
+  for (const sub of subscriptions.value) {
+    groups.push({ id: sub.id, name: sub.name, sub, nodes: sub.nodes })
+  }
+  if (standaloneProfiles.value.length > 0) {
+    groups.push({
+      id: '__standalone__',
+      name: 'Standalone Nodes',
+      sub: null,
+      nodes: standaloneProfiles.value
+    })
+  }
+  return groups
+})
+
+const quickAdd = async () => {
+  try {
+    let text = ''
+    try {
+      if (platformInfo.value?.os === 'android') {
+        text = await invoke<string>('read_clipboard')
+      } else {
+        text = await navigator.clipboard.readText()
+      }
+    } catch (e) {
+      addLog(`[WARN] clipboard read: ${e}`)
+      text = ''
+    }
+    const trimmed = (text || '').trim()
+    if (!trimmed) {
+      showToast('Clipboard is empty')
+      return
+    }
+    if (trimmed.startsWith('http') || trimmed.startsWith('vless://') || trimmed.startsWith('vmess://')
+        || trimmed.startsWith('trojan://') || trimmed.startsWith('ss://') || trimmed.startsWith('hy2://')
+        || trimmed.startsWith('hysteria2://') || trimmed.startsWith('wireguard://') || trimmed.startsWith('warp://')) {
+      importUrl.value = trimmed
+      await handleImport()
+      showToast('Imported from clipboard')
+    } else {
+      importUrl.value = trimmed
+      showToast('Pasted to input — review and add')
+    }
+  } catch (e) {
+    showToast('Quick add failed')
+  }
+}
+</script>

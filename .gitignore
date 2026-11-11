@@ -3,7 +3,7 @@
 **/dist
 
 # Локальные Tauri-сборки и кеши
-**/src-tauri/gen
+**/src-tauri/gen/schemas
 **/src-tauri/target
 
 # Node

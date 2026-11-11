@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status, transport::Server};
 
 use pulsar_daemon::vpn_engine::{ConnectRequest, VpnEngine, VpnState};
 use pulsar_shared::vpn::vpn_service_server::{VpnService, VpnServiceServer};
@@ -29,7 +29,10 @@ pub struct MyVpnService {
 
 fn check_token<T>(request: &Request<T>, expected: Option<&Arc<str>>) -> Result<(), Status> {
     let Some(token) = expected else { return Ok(()) };
-    let got = request.metadata().get("x-pulsar-token").and_then(|v| v.to_str().ok());
+    let got = request
+        .metadata()
+        .get("x-pulsar-token")
+        .and_then(|v| v.to_str().ok());
     if got != Some(token.as_ref()) {
         return Err(Status::unauthenticated("invalid token"));
     }
@@ -57,7 +60,10 @@ impl VpnService for MyVpnService {
         check_token(&request, self.expected_token.as_ref())?;
         let req = request.into_inner();
         let routing = req.routing_config.unwrap_or_default();
-        let engine_req = ConnectRequest { profile_link: req.profile_link, routing };
+        let engine_req = ConnectRequest {
+            profile_link: req.profile_link,
+            routing,
+        };
         let res = if req.connect {
             self.engine.connect(engine_req).await
         } else {
@@ -67,16 +73,28 @@ impl VpnService for MyVpnService {
             Ok(s) => state_to_proto(&s),
             Err(e) => ("Error".into(), e),
         };
-        Ok(Response::new(StatusResponse { state, message: msg }))
+        Ok(Response::new(StatusResponse {
+            state,
+            message: msg,
+        }))
     }
 
-    async fn get_status(&self, request: Request<Empty>) -> Result<Response<StatusResponse>, Status> {
+    async fn get_status(
+        &self,
+        request: Request<Empty>,
+    ) -> Result<Response<StatusResponse>, Status> {
         check_token(&request, self.expected_token.as_ref())?;
         let (state, msg) = state_to_proto(&self.engine.state().await);
-        Ok(Response::new(StatusResponse { state, message: msg }))
+        Ok(Response::new(StatusResponse {
+            state,
+            message: msg,
+        }))
     }
 
-    async fn stream_metrics(&self, request: Request<Empty>) -> Result<Response<Self::StreamMetricsStream>, Status> {
+    async fn stream_metrics(
+        &self,
+        request: Request<Empty>,
+    ) -> Result<Response<Self::StreamMetricsStream>, Status> {
         check_token(&request, self.expected_token.as_ref())?;
         let (tx, rx) = mpsc::channel::<Result<Metrics, Status>>(4);
         let engine = self.engine.clone();
@@ -87,12 +105,17 @@ impl VpnService for MyVpnService {
                 return;
             };
             while let Some(ev) = metrics_rx.recv().await {
-                let MetricsEvent { download_speed, upload_speed } = ev;
+                let MetricsEvent {
+                    download_speed,
+                    upload_speed,
+                } = ev;
                 let m = Metrics {
                     download_speed,
                     upload_speed,
                 };
-                if tx.send(Ok(m)).await.is_err() { break; }
+                if tx.send(Ok(m)).await.is_err() {
+                    break;
+                }
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -114,7 +137,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let expected_token = std::env::args().nth(1).map(Arc::from);
 
     let engine = VpnEngine::new()?;
-    let service = MyVpnService { engine, expected_token, shutdown_tx };
+    let service = MyVpnService {
+        engine,
+        expected_token,
+        shutdown_tx,
+    };
 
     tracing::info!("pulsar-daemon listening on {addr}");
     Server::builder()

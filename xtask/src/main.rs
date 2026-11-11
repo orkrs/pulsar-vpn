@@ -61,11 +61,21 @@ fn say(color: Color, prefix: &str, msg: &str) {
     eprintln!("{}{}", paint(color, prefix), msg);
 }
 
-fn info(msg: &str) { say(Color::Cyan,  "==> ", msg); }
-fn ok(msg:   &str) { say(Color::Green, "  ✓ ", msg); }
-fn warn(msg: &str) { say(Color::Yellow,"  ! ", msg); }
-fn err(msg:  &str) { say(Color::Red,   "  ✗ ", msg); }
-fn dim(msg:  &str) { say(Color::Gray,  "    ", msg); }
+fn info(msg: &str) {
+    say(Color::Cyan, "==> ", msg);
+}
+fn ok(msg: &str) {
+    say(Color::Green, "  ✓ ", msg);
+}
+fn warn(msg: &str) {
+    say(Color::Yellow, "  ! ", msg);
+}
+fn err(msg: &str) {
+    say(Color::Red, "  ✗ ", msg);
+}
+fn dim(msg: &str) {
+    say(Color::Gray, "    ", msg);
+}
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -85,18 +95,34 @@ impl Config {
             .or_else(|| env::current_dir().ok())
             .expect("xtask: cannot determine workspace root");
         let target_dir = workspace_root.join("target");
-        Self { workspace_root, target_dir, release: false, json: false }
+        Self {
+            workspace_root,
+            target_dir,
+            release: false,
+            json: false,
+        }
     }
 
     fn exe(name: &str) -> String {
-        if cfg!(windows) { format!("{}.exe", name) } else { name.to_string() }
+        if cfg!(windows) {
+            format!("{}.exe", name)
+        } else {
+            name.to_string()
+        }
     }
 
-    fn daemon_binary() -> String { Self::exe("pulsar-daemon") }
-    fn singbox_binary() -> String { Self::exe("sing-box") }
+    fn daemon_binary() -> String {
+        Self::exe("pulsar-daemon")
+    }
+    fn xray_binary() -> String {
+        Self::exe("xray")
+    }
 
     fn binaries_dir(&self) -> PathBuf {
-        self.workspace_root.join("pulsar-ui").join("src-tauri").join("binaries")
+        self.workspace_root
+            .join("pulsar-ui")
+            .join("src-tauri")
+            .join("binaries")
     }
 
     fn daemon_built_path(&self) -> PathBuf {
@@ -108,8 +134,8 @@ impl Config {
         self.binaries_dir().join(Self::daemon_binary())
     }
 
-    fn singbox_expected_path(&self) -> PathBuf {
-        self.binaries_dir().join(Self::singbox_binary())
+    fn xray_expected_path(&self) -> PathBuf {
+        self.binaries_dir().join(Self::xray_binary())
     }
 
     fn ui_dir(&self) -> PathBuf {
@@ -137,11 +163,11 @@ fn main() -> ExitCode {
             cfg.release = rest.iter().any(|a| a == "--release" || a == "-r");
             run_build_all(cfg)
         }
-        "dev"      => run_dev(cfg),
-        "clean"    => run_clean(cfg, &rest),
-        "lint"     => run_lint(cfg),
-        "info"     => run_info(cfg),
-        "check"    => {
+        "dev" => run_dev(cfg),
+        "clean" => run_clean(cfg, &rest),
+        "lint" => run_lint(cfg),
+        "info" => run_info(cfg),
+        "check" => {
             // Алиас для `lint`, удобный в CI.
             cfg.json = rest.iter().any(|a| a == "--json");
             run_lint(cfg)
@@ -197,15 +223,18 @@ xtask — оркестратор сборки Pulsar VPN
 fn run_build(cfg: Config) -> ExitCode {
     let started = Instant::now();
     info("Pulsar VPN — production build");
-    dim(&format!("  profile:    {}", if cfg.release { "release" } else { "debug" }));
+    dim(&format!(
+        "  profile:    {}",
+        if cfg.release { "release" } else { "debug" }
+    ));
     dim(&format!("  workspace:  {}", cfg.workspace_root.display()));
     eprintln!();
 
     let steps: [(&str, &str, fn(&Config) -> bool); 5] = [
-        ("1/5", "Сборка демона (pulsar-daemon)",   build_daemon),
+        ("1/5", "Сборка демона (pulsar-daemon)", build_daemon),
         ("2/5", "Копирование демона в UI ресурсы", copy_daemon),
-        ("3/5", "Установка зависимостей UI",        install_ui_deps),
-        ("4/5", "Сборка фронтенда (vue-tsc + vite)",build_frontend),
+        ("3/5", "Установка зависимостей UI", install_ui_deps),
+        ("4/5", "Сборка фронтенда (vue-tsc + vite)", build_frontend),
         ("5/5", "Сборка Tauri приложения и инсталлятора", build_tauri),
     ];
 
@@ -216,8 +245,8 @@ fn run_build(cfg: Config) -> ExitCode {
         }
     }
 
-    // Не критично, но проверим sing-box — без него приложение не сможет поднять VPN.
-    check_singbox(&cfg);
+    // Не критично для сборки, но без Xray приложение не сможет поднять VPN.
+    check_xray(&cfg);
 
     let secs = started.elapsed().as_secs();
     eprintln!();
@@ -232,8 +261,8 @@ fn run_dev(cfg: Config) -> ExitCode {
     eprintln!();
 
     let steps: [(&str, &str, fn(&Config) -> bool); 3] = [
-        ("1/3", "Сборка демона (debug)",       build_daemon),
-        ("2/3", "Копирование демона в UI",     copy_daemon),
+        ("1/3", "Сборка демона (debug)", build_daemon),
+        ("2/3", "Копирование демона в UI", copy_daemon),
         ("3/3", "Запуск tauri dev (Ctrl+C для выхода)", tauri_dev),
     ];
 
@@ -301,15 +330,25 @@ fn check_android_prereqs(cfg: &Config) -> bool {
                     .flatten()
                     .filter_map(|e| {
                         let p = e.path();
-                        if p.is_dir() { p.file_name().and_then(|n| n.to_str()).map(String::from) } else { None }
+                        if p.is_dir() {
+                            p.file_name().and_then(|n| n.to_str()).map(String::from)
+                        } else {
+                            None
+                        }
                     })
                     .collect();
                 if versions.is_empty() {
                     err("NDK не установлен (папка ndk/ пуста)");
-                    dim("    откройте Android Studio → SDK Manager → SDK Tools → NDK (Side by side)");
+                    dim(
+                        "    откройте Android Studio → SDK Manager → SDK Tools → NDK (Side by side)",
+                    );
                     all_ok = false;
                 } else {
-                    ok(&format!("NDK: {} (доступно: {})", ndk_dir.display(), versions.join(", ")));
+                    ok(&format!(
+                        "NDK: {} (доступно: {})",
+                        ndk_dir.display(),
+                        versions.join(", ")
+                    ));
                 }
             }
         } else {
@@ -328,7 +367,11 @@ fn check_android_prereqs(cfg: &Config) -> bool {
     }
 
     // Rust-таргеты для Android
-    if let Ok(v) = run_capture("rustup", &["target", "list", "--installed"], &cfg.workspace_root) {
+    if let Ok(v) = run_capture(
+        "rustup",
+        &["target", "list", "--installed"],
+        &cfg.workspace_root,
+    ) {
         let have: Vec<&str> = v.lines().collect();
         let needed = [
             "aarch64-linux-android",
@@ -342,11 +385,20 @@ fn check_android_prereqs(cfg: &Config) -> bool {
             .collect();
         if missing.len() == needed.len() {
             err("ни одного Android Rust target не установлено");
-            dim(&format!("    установите хотя бы: rustup target add {}", needed[0]));
+            dim(&format!(
+                "    установите хотя бы: rustup target add {}",
+                needed[0]
+            ));
             all_ok = false;
         } else {
-            let installed: Vec<&&str> = needed.iter().filter(|t| have.iter().any(|h| h.trim() == **t)).collect();
-            ok(&format!("Android Rust targets: {}", installed.iter().map(|s| **s).collect::<Vec<_>>().join(", ")));
+            let installed: Vec<&&str> = needed
+                .iter()
+                .filter(|t| have.iter().any(|h| h.trim() == **t))
+                .collect();
+            ok(&format!(
+                "Android Rust targets: {}",
+                installed.iter().map(|s| **s).collect::<Vec<_>>().join(", ")
+            ));
         }
     } else {
         err("rustup недоступен, невозможно проверить Android targets");
@@ -362,7 +414,10 @@ fn check_tauri_android_init(cfg: &Config) -> bool {
     // Tauri 2 кладёт gen/ в src-tauri/ (рядом с Cargo.toml, а не в pulsar-ui/).
     let gen_dir = cfg.ui_dir().join("src-tauri").join("gen").join("android");
     if gen_dir.exists() && gen_dir.is_dir() {
-        ok(&format!("gen/android уже инициализирован: {}", gen_dir.display()));
+        ok(&format!(
+            "gen/android уже инициализирован: {}",
+            gen_dir.display()
+        ));
         true
     } else {
         err("gen/android не найден");
@@ -375,7 +430,10 @@ fn check_tauri_android_init(cfg: &Config) -> bool {
 fn run_build_android(cfg: Config) -> ExitCode {
     let started = Instant::now();
     info("Pulsar VPN — Android build");
-    dim(&format!("  profile:   {}", if cfg.release { "release" } else { "debug" }));
+    dim(&format!(
+        "  profile:   {}",
+        if cfg.release { "release" } else { "debug" }
+    ));
     dim(&format!("  workspace: {}", cfg.workspace_root.display()));
     eprintln!();
 
@@ -432,13 +490,19 @@ fn print_android_artifacts(cfg: &Config) {
         if let Ok(read) = std::fs::read_dir(&outputs_root) {
             for top in read.flatten() {
                 let top_path = top.path();
-                if !top_path.is_dir() { continue; }
+                if !top_path.is_dir() {
+                    continue;
+                }
                 if let Ok(walk) = walkdir(&top_path, 3) {
                     for path in walk {
                         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                             if matches!(ext, "apk" | "aab") {
                                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                                dim(&format!("  {}  ({:.1} MB)", path.display(), size as f64 / 1_048_576.0));
+                                dim(&format!(
+                                    "  {}  ({:.1} MB)",
+                                    path.display(),
+                                    size as f64 / 1_048_576.0
+                                ));
                                 found = true;
                             }
                         }
@@ -457,7 +521,9 @@ fn print_android_artifacts(cfg: &Config) {
 fn walkdir(root: &Path, max_depth: usize) -> std::io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     fn recurse(p: &Path, depth: usize, max: usize, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-        if depth > max { return Ok(()); }
+        if depth > max {
+            return Ok(());
+        }
         for entry in std::fs::read_dir(p)? {
             let entry = entry?;
             let path = entry.path();
@@ -503,7 +569,9 @@ fn run_step(label: &str, name: &str, f: impl FnOnce() -> bool) -> bool {
     let started = Instant::now();
     info(&format!("[{}] {}", label, name));
     let ok = f();
-    if !ok { return false; }
+    if !ok {
+        return false;
+    }
     let dt = started.elapsed();
     if dt.as_millis() > 100 {
         dim(&format!("    └─ заняло {:.1?}", dt));
@@ -537,7 +605,12 @@ fn copy_daemon(cfg: &Config) -> bool {
         }
     }
     if let Err(e) = std::fs::copy(&src, &dst) {
-        err(&format!("копирование {} → {}: {}", src.display(), dst.display(), e));
+        err(&format!(
+            "копирование {} → {}: {}",
+            src.display(),
+            dst.display(),
+            e
+        ));
         return false;
     }
     dim(&format!("    {}", dst.display()));
@@ -545,14 +618,14 @@ fn copy_daemon(cfg: &Config) -> bool {
     true
 }
 
-fn check_singbox(cfg: &Config) {
-    let p = cfg.singbox_expected_path();
+fn check_xray(cfg: &Config) {
+    let p = cfg.xray_expected_path();
     if !p.exists() {
-        warn(&format!("sing-box не найден: {}", p.display()));
+        warn(&format!("Xray not found: {}", p.display()));
         warn("  приложение запустится, но не сможет поднимать VPN-туннель.");
-        warn("  Положите sing-box.exe рядом с pulsar-daemon.exe и пересоберите.");
+        warn("  Put xray.exe next to pulsar-daemon.exe and rebuild.");
     } else {
-        ok("sing-box найден");
+        ok("Xray found");
     }
 }
 
@@ -579,13 +652,20 @@ fn print_artifacts(cfg: &Config) {
     // Tauri кладёт bundle в pulsar-ui/src-tauri/target/release/bundle (отдельный target
     // из-за build.rs в src-tauri) либо в target/release/bundle (если Tauri переиспользует
     // workspace target). Проверим оба варианта.
-    let ui_target_bundle = cfg.ui_dir().join("src-tauri").join("target").join("release").join("bundle");
-    let ws_target_bundle  = cfg.target_dir.join("release").join("bundle");
+    let ui_target_bundle = cfg
+        .ui_dir()
+        .join("src-tauri")
+        .join("target")
+        .join("release")
+        .join("bundle");
+    let ws_target_bundle = cfg.target_dir.join("release").join("bundle");
     let bundles = [ui_target_bundle, ws_target_bundle];
 
     let mut found = false;
     for root in &bundles {
-        if !root.exists() { continue; }
+        if !root.exists() {
+            continue;
+        }
         if let Ok(read) = std::fs::read_dir(root) {
             for sub in read.flatten() {
                 let sub_path = sub.path();
@@ -596,7 +676,11 @@ fn print_artifacts(cfg: &Config) {
                             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                                 if matches!(ext, "msi" | "exe" | "AppImage" | "deb" | "dmg") {
                                     let size = f.metadata().map(|m| m.len()).unwrap_or(0);
-                                    dim(&format!("  {}  ({:.1} MB)", path.display(), size as f64 / 1_048_576.0));
+                                    dim(&format!(
+                                        "  {}  ({:.1} MB)",
+                                        path.display(),
+                                        size as f64 / 1_048_576.0
+                                    ));
                                     found = true;
                                 }
                             }
@@ -649,8 +733,13 @@ fn run_clean(cfg: Config, args: &[String]) -> ExitCode {
     }
 
     eprintln!();
-    if ok_all { ok("очистка завершена"); ExitCode::SUCCESS }
-    else      { err("очистка прошла с ошибками"); ExitCode::FAILURE }
+    if ok_all {
+        ok("очистка завершена");
+        ExitCode::SUCCESS
+    } else {
+        err("очистка прошла с ошибками");
+        ExitCode::FAILURE
+    }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -665,12 +754,23 @@ fn run_lint(cfg: Config) -> ExitCode {
     let mut ok_all = true;
 
     info("[1/3] cargo check --workspace --all-targets");
-    ok_all &= run("cargo", &["check", "--workspace", "--all-targets"], &cfg.workspace_root);
+    ok_all &= run(
+        "cargo",
+        &["check", "--workspace", "--all-targets"],
+        &cfg.workspace_root,
+    );
 
     info("[2/3] cargo clippy --workspace --all-targets -- -D warnings");
     ok_all &= run(
         "cargo",
-        &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ],
         &cfg.workspace_root,
     );
 
@@ -678,8 +778,13 @@ fn run_lint(cfg: Config) -> ExitCode {
     ok_all &= run("bun", &["run", "typecheck"], &cfg.ui_dir());
 
     eprintln!();
-    if ok_all { ok("линт пройден"); ExitCode::SUCCESS }
-    else      { err("линт провалился"); ExitCode::FAILURE }
+    if ok_all {
+        ok("линт пройден");
+        ExitCode::SUCCESS
+    } else {
+        err("линт провалился");
+        ExitCode::FAILURE
+    }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -689,28 +794,40 @@ fn run_lint(cfg: Config) -> ExitCode {
 fn run_info(cfg: Config) -> ExitCode {
     let line = |k: &str, v: &str| println!("  {:<16}{}", k, v);
     println!("Pulsar VPN workspace");
-    line("root",        &cfg.workspace_root.display().to_string());
-    line("target",      &cfg.target_dir.display().to_string());
-    line("daemon bin",  &cfg.daemon_built_path().display().to_string());
+    line("root", &cfg.workspace_root.display().to_string());
+    line("target", &cfg.target_dir.display().to_string());
+    line("daemon bin", &cfg.daemon_built_path().display().to_string());
     line("daemon dest", &cfg.daemon_dest_path().display().to_string());
-    line("sing-box",    &cfg.singbox_expected_path().display().to_string());
-    line("ui dir",      &cfg.ui_dir().display().to_string());
+    line("Xray", &cfg.xray_expected_path().display().to_string());
+    line("ui dir", &cfg.ui_dir().display().to_string());
     println!();
     println!("Инструменты:");
-    if let Ok(v) = run_capture("rustc",  &["--version"], &cfg.workspace_root) { line("rustc",  v.trim()); }
-    if let Ok(v) = run_capture("cargo",  &["--version"], &cfg.workspace_root) { line("cargo",  v.trim()); }
-    if let Ok(v) = run_capture("bun",    &["--version"], &cfg.workspace_root) { line("bun",    v.trim()); }
-    if let Ok(v) = run_capture("node",   &["--version"], &cfg.workspace_root) { line("node",   v.trim()); }
+    if let Ok(v) = run_capture("rustc", &["--version"], &cfg.workspace_root) {
+        line("rustc", v.trim());
+    }
+    if let Ok(v) = run_capture("cargo", &["--version"], &cfg.workspace_root) {
+        line("cargo", v.trim());
+    }
+    if let Ok(v) = run_capture("bun", &["--version"], &cfg.workspace_root) {
+        line("bun", v.trim());
+    }
+    if let Ok(v) = run_capture("node", &["--version"], &cfg.workspace_root) {
+        line("node", v.trim());
+    }
     println!();
     println!("Бинарники:");
     line("daemon built", &status(cfg.daemon_built_path().exists()));
     line("daemon bundled", &status(cfg.daemon_dest_path().exists()));
-    line("sing-box bundled", &status(cfg.singbox_expected_path().exists()));
+    line("Xray bundled", &status(cfg.xray_expected_path().exists()));
     ExitCode::SUCCESS
 }
 
 fn status(ok: bool) -> &'static str {
-    if ok { "✓ найден" } else { "✗ отсутствует" }
+    if ok {
+        "✓ найден"
+    } else {
+        "✗ отсутствует"
+    }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -758,7 +875,9 @@ fn run_capture(prog: &str, args: &[&str], cwd: &Path) -> Result<String, ()> {
         .stderr(Stdio::null())
         .output()
         .map_err(|_| ())?;
-    if !out.status.success() { return Err(()); }
+    if !out.status.success() {
+        return Err(());
+    }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
